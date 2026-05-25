@@ -1,0 +1,29 @@
+mode = "learn"
+
+[[users]]
+uid = 1000
+groups = ["aws", "ssh"]
+
+[[protected_groups]]
+name = "aws"
+paths = [
+    "/home/alice/.aws"
+]
+
+[[protected_groups]]
+name = "ssh"
+paths = [
+    "/home/alice/.ssh"
+]
+
+[[allow_rules]]
+name = "Allow AWS CLI"
+uid = 1000
+exe = "/usr/bin/aws"
+path_group = "aws"
+
+[[allow_rules]]
+name = "Allow SSH client"
+uid = 1000
+exe = "/usr/bin/ssh"
+path_group = "ssh"
