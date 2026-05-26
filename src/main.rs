@@ -103,6 +103,9 @@ enum Command {
 
         #[arg(long)]
         json: bool,
+
+        #[arg(long)]
+        toml: bool,
     },
 
 }
@@ -214,7 +217,15 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        Command::PolicyReview { log_file, json } => {
+        Command::PolicyReview {
+            log_file,
+            json,
+            toml,
+        } => {
+            if json && toml {
+                anyhow::bail!("--json and --toml cannot be used together");
+            }
+
             let logs = logging::read_jsonl_logs(&log_file)
                 .with_context(|| format!("failed to read logs from {}", log_file.display()))?;
 
@@ -222,6 +233,8 @@ fn main() -> anyhow::Result<()> {
 
             if json {
                 print_review_candidates_json(&candidates)?;
+            }else if toml {
+                print_review_candidates_toml(&candidates);
             } else {
                 print_review_candidates(&candidates);
             }
@@ -404,14 +417,10 @@ fn suggested_allow_rule_name(candidate: &ReviewCandidate) -> String {
 
 fn print_candidate_toml(candidate: &ReviewCandidate) {
     println!("   Suggested TOML:");
-    println!("   [[allow_rules]]");
-    println!(
-        "   name = \"{}\"",
-        suggested_allow_rule_name(candidate)
-    );
-    println!("   uid = {}", candidate.key.uid);
-    println!("   exe = \"{}\"", candidate.key.exe.display());
-    println!("   path_group = \"{}\"", candidate.key.path_group);
+
+    for line in candidate_to_toml(candidate).lines() {
+        println!("   {line}");
+    }
 }
 
 fn review_candidate_to_output(candidate: &ReviewCandidate) -> ReviewCandidateOutput {
@@ -442,6 +451,33 @@ fn print_review_candidates_json(candidates: &[ReviewCandidate]) -> anyhow::Resul
     println!("{}", review_candidates_to_json(candidates)?);
     Ok(())
 }
+
+fn candidate_to_toml(candidate: &ReviewCandidate) -> String {
+    format!(
+        "[[allow_rules]]\nname = \"{}\"\nuid = {}\nexe = \"{}\"\npath_group = \"{}\"",
+        suggested_allow_rule_name(candidate),
+        candidate.key.uid,
+        candidate.key.exe.display(),
+        candidate.key.path_group
+    )
+}
+
+fn review_candidates_to_toml(candidates: &[ReviewCandidate]) -> String {
+    candidates
+        .iter()
+        .map(candidate_to_toml)
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn print_review_candidates_toml(candidates: &[ReviewCandidate]) {
+    let toml = review_candidates_to_toml(candidates);
+
+    if !toml.is_empty() {
+        println!("{toml}");
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -658,4 +694,51 @@ mod tests {
         assert!(json.contains("\"suggested_name\": \"Allow python3 to access aws\""));
     }
 
+    #[test]
+    fn candidate_to_toml_outputs_allow_rule_snippet() {
+        let candidate = ReviewCandidate {
+            key: ReviewCandidateKey {
+                uid: 1000,
+                exe: PathBuf::from("/usr/bin/python3"),
+                path_group: "aws".to_string(),
+            },
+            event_count: 1,
+        };
+
+        let toml = candidate_to_toml(&candidate);
+
+        assert!(toml.contains("[[allow_rules]]"));
+        assert!(toml.contains("name = \"Allow python3 to access aws\""));
+        assert!(toml.contains("uid = 1000"));
+        assert!(toml.contains("exe = \"/usr/bin/python3\""));
+        assert!(toml.contains("path_group = \"aws\""));
+    }
+
+    #[test]
+    fn review_candidates_to_toml_separates_multiple_rules() {
+        let candidates = vec![
+            ReviewCandidate {
+                key: ReviewCandidateKey {
+                    uid: 1000,
+                    exe: PathBuf::from("/usr/bin/python3"),
+                    path_group: "aws".to_string(),
+                },
+                event_count: 1,
+            },
+            ReviewCandidate {
+                key: ReviewCandidateKey {
+                    uid: 1000,
+                    exe: PathBuf::from("/usr/bin/git"),
+                    path_group: "ssh".to_string(),
+                },
+                event_count: 1,
+            },
+        ];
+
+        let toml = review_candidates_to_toml(&candidates);
+
+        assert!(toml.contains("name = \"Allow python3 to access aws\""));
+        assert!(toml.contains("name = \"Allow git to access ssh\""));
+        assert!(toml.contains("\n\n[[allow_rules]]"));
+    }
 }
