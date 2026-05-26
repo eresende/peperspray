@@ -7,6 +7,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use event::{AccessEvent, Operation};
 use policy::Decision;
+use serde::Serialize;
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -35,6 +36,15 @@ struct ReviewCandidateKey {
 struct ReviewCandidate {
     key: ReviewCandidateKey,
     event_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct ReviewCandidateOutput {
+    uid: u32,
+    exe: PathBuf,
+    path_group: String,
+    event_count: usize,
+    suggested_name: String,
 }
 
 #[derive(Debug, Subcommand)]
@@ -90,6 +100,9 @@ enum Command {
     PolicyReview {
         #[arg(long, default_value = "./events.jsonl")]
         log_file: PathBuf,
+
+        #[arg(long)]
+        json: bool,
     },
 
 }
@@ -201,13 +214,17 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        Command::PolicyReview { log_file } => {
+        Command::PolicyReview { log_file, json } => {
             let logs = logging::read_jsonl_logs(&log_file)
                 .with_context(|| format!("failed to read logs from {}", log_file.display()))?;
 
             let candidates = build_review_candidates(&logs);
 
-            print_review_candidates(&candidates);
+            if json {
+                print_review_candidates_json(&candidates)?;
+            } else {
+                print_review_candidates(&candidates);
+            }
         }
     }
 
@@ -364,9 +381,67 @@ fn print_review_candidates(candidates: &[ReviewCandidate]) {
         println!("   path_group: {}", candidate.key.path_group);
         println!("   events:     {}", candidate.event_count);
         println!();
+
+        print_candidate_toml(candidate);
+        println!();
     }
 }
 
+fn executable_name(exe: &std::path::Path) -> String {
+    exe.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+fn suggested_allow_rule_name(candidate: &ReviewCandidate) -> String {
+    format!(
+        "Allow {} to access {}",
+        executable_name(&candidate.key.exe),
+        candidate.key.path_group
+    )
+}
+
+fn print_candidate_toml(candidate: &ReviewCandidate) {
+    println!("   Suggested TOML:");
+    println!("   [[allow_rules]]");
+    println!(
+        "   name = \"{}\"",
+        suggested_allow_rule_name(candidate)
+    );
+    println!("   uid = {}", candidate.key.uid);
+    println!("   exe = \"{}\"", candidate.key.exe.display());
+    println!("   path_group = \"{}\"", candidate.key.path_group);
+}
+
+fn review_candidate_to_output(candidate: &ReviewCandidate) -> ReviewCandidateOutput {
+    ReviewCandidateOutput {
+        uid: candidate.key.uid,
+        exe: candidate.key.exe.clone(),
+        path_group: candidate.key.path_group.clone(),
+        event_count: candidate.event_count,
+        suggested_name: suggested_allow_rule_name(candidate)
+    }
+}
+
+fn review_candidates_to_output(
+    candidates: &[ReviewCandidate],
+) -> Vec<ReviewCandidateOutput> {
+    candidates
+        .iter()
+        .map(review_candidate_to_output)
+        .collect()
+}
+
+fn review_candidates_to_json(candidates: &[ReviewCandidate]) -> anyhow::Result<String> {
+    let output = review_candidates_to_output(candidates);
+    Ok(serde_json::to_string_pretty(&output)?)
+}
+
+fn print_review_candidates_json(candidates: &[ReviewCandidate]) -> anyhow::Result<()> {
+    println!("{}", review_candidates_to_json(candidates)?);
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
@@ -541,6 +616,46 @@ mod tests {
         assert_eq!(candidates[1].key.exe, PathBuf::from("/usr/bin/git"));
         assert_eq!(candidates[1].key.path_group, "ssh");
         assert_eq!(candidates[1].event_count, 1);
+    }
+
+    #[test]
+    fn review_candidate_to_output_adds_suggested_name() {
+        let candidate = ReviewCandidate {
+            key: ReviewCandidateKey {
+                uid: 1000,
+                exe: PathBuf::from("/usr/bin/python3"),
+                path_group: "aws".to_string(),
+            },
+            event_count: 2,
+        };
+
+        let output = review_candidate_to_output(&candidate);
+
+        assert_eq!(output.uid, 1000);
+        assert_eq!(output.exe, PathBuf::from("/usr/bin/python3"));
+        assert_eq!(output.path_group, "aws");
+        assert_eq!(output.event_count, 2);
+        assert_eq!(output.suggested_name, "Allow python3 to access aws");
+    }
+
+    #[test]
+    fn review_candidates_to_json_array() {
+        let candidates = vec![ReviewCandidate {
+            key: ReviewCandidateKey {
+                uid: 1000,
+                exe: PathBuf::from("/usr/bin/python3"),
+                path_group: "aws".to_string(),
+            },
+            event_count: 1,
+        }];
+
+        let json = review_candidates_to_json(&candidates)
+            .expect("review candidates should serialize");
+
+        assert!(json.starts_with("["));
+        assert!(json.contains("\"uid\": 1000"));
+        assert!(json.contains("\"path_group\": \"aws\""));
+        assert!(json.contains("\"suggested_name\": \"Allow python3 to access aws\""));
     }
 
 }
