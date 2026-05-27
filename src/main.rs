@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 use event::{AccessEvent, Operation};
 use policy::Decision;
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]
@@ -106,6 +106,9 @@ enum Command {
 
         #[arg(long)]
         toml: bool,
+
+        #[arg(long)]
+        write_suggestions: Option<PathBuf>,
     },
 
 }
@@ -221,9 +224,16 @@ fn main() -> anyhow::Result<()> {
             log_file,
             json,
             toml,
+            write_suggestions,
         } => {
             if json && toml {
                 anyhow::bail!("--json and --toml cannot be used together");
+            }
+
+            if write_suggestions.is_some() && (json || toml) {
+                anyhow::bail!(
+                    "--write-suggestions cannot be used together with --json or --toml"
+                );
             }
 
             let logs = logging::read_jsonl_logs(&log_file)
@@ -231,7 +241,16 @@ fn main() -> anyhow::Result<()> {
 
             let candidates = build_review_candidates(&logs);
 
-            if json {
+            if let Some(path) = write_suggestions {
+                write_review_suggestions(&path, &candidates)
+                    .with_context(|| format!("failed to write suggestions to {}", path.display()))?;
+
+                println!(
+                    "Wrote {} to {}",
+                    allow_rule_count_text(candidates.len()),
+                    path.display()
+                );
+            } else if json {
                 print_review_candidates_json(&candidates)?;
             }else if toml {
                 print_review_candidates_toml(&candidates);
@@ -475,6 +494,24 @@ fn print_review_candidates_toml(candidates: &[ReviewCandidate]) {
 
     if !toml.is_empty() {
         println!("{toml}");
+    }
+}
+
+fn write_review_suggestions(
+    path: &Path,
+    candidates: &[ReviewCandidate],
+) -> anyhow::Result<()> {
+    let toml = review_candidates_to_toml(candidates);
+
+    std::fs::write(path, toml)?;
+
+    Ok(())
+}
+
+fn allow_rule_count_text(count: usize) -> String {
+    match count {
+        1 => "1 suggested allow rule".to_string(),
+        n => format!("{n} suggested allow rules"),
     }
 }
 
@@ -740,5 +777,40 @@ mod tests {
         assert!(toml.contains("name = \"Allow python3 to access aws\""));
         assert!(toml.contains("name = \"Allow git to access ssh\""));
         assert!(toml.contains("\n\n[[allow_rules]]"));
+    }
+
+    #[test]
+    fn allow_rule_count_text_handles_singular() {
+        assert_eq!(allow_rule_count_text(1), "1 suggested allow rule");
+    }
+
+    #[test]
+    fn allow_rule_count_text_handles_plural() {
+        assert_eq!(allow_rule_count_text(0), "0 suggested allow rules");
+        assert_eq!(allow_rule_count_text(2), "2 suggested allow rules");
+    }
+
+    #[test]
+    fn write_review_suggestions_writes_toml_file() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let path = dir.path().join("suggested-rules.toml");
+
+        let candidates = vec![ReviewCandidate {
+            key: ReviewCandidateKey {
+                uid: 1000,
+                exe: PathBuf::from("/usr/bin/python3"),
+                path_group: "aws".to_string(),
+            },
+            event_count: 1,
+        }];
+
+        write_review_suggestions(&path, &candidates)
+            .expect("suggestions should be written");
+
+        let contents = std::fs::read_to_string(&path)
+            .expect("suggestions should be readable");
+
+        assert!(contents.contains("[[allow_rules]]"));
+        assert!(contents.contains("name = \"Allow python3 to access aws\""));
     }
 }

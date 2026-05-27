@@ -14,3 +14,6 @@ log = "0.4.29"
 serde_json = "1.0.150"
 chrono = { version = "0.4.44", features = ["serde"] }
 uuid = { version = "1.23.1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
