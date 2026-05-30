@@ -1,6 +1,7 @@
 mod config;
 mod event;
 mod logging;
+mod paths;
 mod policy;
 mod process;
 
@@ -292,16 +293,19 @@ fn build_access_event(
         return Ok(AccessEvent {
             pid: Some(process_info.pid),
             uid: process_info.uid,
-            exe: process_info.exe,
-            cwd: Some(process_info.cwd),
+            exe: paths::normalize_path(&process_info.exe),
+            cwd: Some(paths::normalize_path(&process_info.cwd)),
             cmdline: process_info.cmdline,
-            target_path,
+            target_path: paths::normalize_path(&target_path),
             operation: Operation::OpenRead,
         });
     }
 
     let exe = exe.context("--exe is required when --pid is not provided")?;
     let uid = uid.context("--uid is required when --pid is not provided")?;
+
+    let exe = paths::normalize_path(&exe);
+    let target_path = paths::normalize_path(&target_path);
 
     Ok(AccessEvent {
         pid: None,
@@ -952,14 +956,14 @@ mod tests {
     fn build_access_event_from_manual_exe_and_uid() {
         let event = build_access_event(
             PathBuf::from("/home/alice/.aws/credentials"),
-            Some(PathBuf::from("/usr/bin/python3")),
+            Some(PathBuf::from("/missing/bin/python3")),
             Some(1000),
             None,
         )
         .expect("event should be built");
 
         assert_eq!(event.uid, 1000);
-        assert_eq!(event.exe, PathBuf::from("/usr/bin/python3"));
+        assert_eq!(event.exe, PathBuf::from("/missing/bin/python3"));
         assert_eq!(
             event.target_path,
             PathBuf::from("/home/alice/.aws/credentials")

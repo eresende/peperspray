@@ -1,3 +1,4 @@
+use crate::paths;
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -46,7 +47,10 @@ struct AllowRuleBehaviorKey<'a> {
 
 pub fn load_config(path: &Path) -> anyhow::Result<Config> {
     let contents = fs::read_to_string(path)?;
-    let config: Config = toml::from_str(&contents)?;
+    let mut config: Config = toml::from_str(&contents)?;
+
+    normalize_config_paths(&mut config);
+
     Ok(config)
 }
 
@@ -134,6 +138,18 @@ fn validate_duplicate_allow_rule_behavior(config: &Config, errors: &mut Vec<Stri
                 rule.path_group
             ));
         }
+    }
+}
+
+pub fn normalize_config_paths(config: &mut Config) {
+    for group in &mut config.protected_groups {
+        for path in &mut group.paths {
+            *path = paths::normalize_path(path);
+        }
+    }
+
+    for rule in &mut config.allow_rules {
+        rule.exe = paths::normalize_path(&rule.exe);
     }
 }
 
@@ -244,5 +260,20 @@ mod tests {
             "unexpected error: {:?}",
             errors
         );
+    }
+
+    #[test]
+    fn normalize_config_keeps_missing_paths() {
+        let mut config = sample_config();
+
+        config.allow_rules[0].exe = PathBuf::from("/missing/bin/aws");
+
+        normalize_config_paths(&mut config);
+
+        assert_eq!(
+            config.protected_groups[0].paths[0],
+            PathBuf::from("/home/alice/.aws")
+        );
+        assert_eq!(config.allow_rules[0].exe, PathBuf::from("/missing/bin/aws"));
     }
 }
