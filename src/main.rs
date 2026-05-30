@@ -296,6 +296,7 @@ fn build_access_event(
             exe: paths::normalize_path(&process_info.exe),
             cwd: Some(paths::normalize_path(&process_info.cwd)),
             cmdline: process_info.cmdline,
+            parent_chain: process_info.parent_chain,
             target_path: paths::normalize_path(&target_path),
             operation: Operation::OpenRead,
         });
@@ -313,6 +314,7 @@ fn build_access_event(
         exe,
         cwd: None,
         cmdline: Vec::new(),
+        parent_chain: Vec::new(),
         target_path,
         operation: Operation::OpenRead,
     })
@@ -415,6 +417,38 @@ fn print_log_detail(log: &logging::OwnedDecisionLog) {
         println!("Cmdline:    <unknown>");
     } else {
         println!("Cmdline:    {}", log.cmdline.join(" "));
+    }
+
+    if log.parent_chain.is_empty() {
+        println!("Parent chain: <empty>");
+    } else {
+        println!("Parent chain:");
+
+        for parent in &log.parent_chain {
+            let exe = parent
+                .exe
+                .as_ref()
+                .map(|exe| exe.display().to_string())
+                .unwrap_or_else(|| "<unknown>".to_string());
+
+            let cmdline = if parent.cmdline.is_empty() {
+                "<empty>".to_string()
+            } else {
+                parent.cmdline.join(" ")
+            };
+
+            println!(
+                "  pid={} ppid={} uid={} exe={} cmdline={}",
+                parent.pid,
+                parent
+                    .ppid
+                    .map(|ppid| ppid.to_string())
+                    .unwrap_or_else(|| "<unknown>".to_string()),
+                parent.uid,
+                exe,
+                cmdline
+            );
+        }
     }
 
     println!("Target:      {}", log.target_path.display());
@@ -665,6 +699,7 @@ mod tests {
             exe: PathBuf::from(format!("/usr/bin/tool-{index}")),
             cwd: None,
             cmdline: Vec::new(),
+            parent_chain: Vec::new(),
             target_path: PathBuf::from(format!("/tmp/file-{index}")),
             operation: event::Operation::OpenRead,
             decision: "allow".to_string(),

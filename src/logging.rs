@@ -36,6 +36,9 @@ pub struct OwnedDecisionLog {
     #[serde(default)]
     pub cmdline: Vec<String>,
 
+    #[serde(default)]
+    pub parent_chain: Vec<crate::process::ProcessChainEntry>,
+
     pub target_path: PathBuf,
     pub operation: Operation,
     pub decision: String,

@@ -1,3 +1,4 @@
+use crate::process::ProcessChainEntry;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -20,6 +21,9 @@ pub struct AccessEvent {
 
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub cmdline: Vec<String>,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub parent_chain: Vec<ProcessChainEntry>,
 
     pub target_path: PathBuf,
     pub operation: Operation,

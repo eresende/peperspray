@@ -1,4 +1,5 @@
 use anyhow::Context;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
@@ -19,7 +20,7 @@ struct ProcessStatus {
     ppid: Option<u32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessChainEntry {
     pub pid: u32,
     pub ppid: Option<u32>,

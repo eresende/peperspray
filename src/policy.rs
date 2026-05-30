@@ -121,6 +121,7 @@ mod tests {
             exe: PathBuf::from(exe),
             cwd: None,
             cmdline: Vec::new(),
+            parent_chain: Vec::new(),
             target_path: PathBuf::from(target_path),
             operation: Operation::OpenRead,
         }
