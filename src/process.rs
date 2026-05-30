@@ -1,7 +1,6 @@
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use std::fs;
 use std::path::PathBuf;
-use clap::builder::Str;
 
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
@@ -75,7 +74,6 @@ fn parse_cmdline(bytes: &[u8]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::os::linux::raw::stat;
     use super::*;
 
     #[test]

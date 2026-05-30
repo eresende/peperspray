@@ -58,11 +58,14 @@ enum Command {
     TestAccess {
         target_path: PathBuf,
 
-        #[arg(long)]
-        exe: PathBuf,
+        #[arg(long, required_unless_present = "pid")]
+        exe: Option<PathBuf>,
 
-        #[arg(long)]
-        uid: u32,
+        #[arg(long, required_unless_present = "pid")]
+        uid: Option<u32>,
+
+        #[arg(long, conflicts_with_all = ["exe", "uid"])]
+        pid: Option<u32>,
 
         #[arg(long, default_value = "examples/config.toml")]
         config: PathBuf,
@@ -72,6 +75,7 @@ enum Command {
 
         #[arg(long)]
         log_file: Option<PathBuf>,
+
     },
 
     Logs {
@@ -151,6 +155,7 @@ fn main() -> anyhow::Result<()> {
             target_path,
             exe,
             uid,
+            pid,
             config,
             json,
             log_file,
@@ -158,12 +163,7 @@ fn main() -> anyhow::Result<()> {
             let parsed_config = config::load_config(&config)
                 .with_context(|| format!("failed to load config from {}", config.display()))?;
 
-            let event = AccessEvent {
-                uid,
-                exe,
-                target_path,
-                operation: Operation::OpenRead,
-            };
+            let event = build_access_event(target_path, exe, uid, pid)?;
 
             let decision = policy::decide(&parsed_config, &event);
             let decision_log = logging::DecisionLog::new(&event, &decision);
@@ -279,6 +279,35 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn build_access_event(
+    target_path: PathBuf,
+    exe: Option<PathBuf>,
+    uid: Option<u32>,
+    pid: Option<u32>,
+) -> anyhow::Result<AccessEvent> {
+    if let Some(pid) = pid {
+        let process_info = process::inspect_process(pid)
+            .with_context(|| format!("failed to inspect process {pid}"))?;
+
+        return Ok(AccessEvent {
+            uid: process_info.uid,
+            exe: process_info.exe,
+            target_path,
+            operation: Operation::OpenRead,
+        });
+    }
+
+    let exe = exe.context("--exe is required when --pid is not provided")?;
+    let uid = uid.context("--uid is required when --pid is not provided")?;
+
+    Ok(AccessEvent {
+        uid,
+        exe,
+        target_path,
+        operation: Operation::OpenRead,
+    })
 }
 
 fn print_decision(decision: &Decision) {
@@ -884,5 +913,34 @@ mod tests {
 
         assert!(contents.contains("[[allow_rules]]"));
         assert!(!contents.contains("old contents"));
+    }
+
+    #[test]
+    fn build_access_event_from_manual_exe_and_uid() {
+        let event = build_access_event(
+            PathBuf::from("/home/alice/.aws/credentials"),
+            Some(PathBuf::from("/usr/bin/python3")),
+            Some(1000),
+            None,
+        ).expect("event should be built");
+
+        assert_eq!(event.uid, 1000);
+        assert_eq!(event.exe, PathBuf::from("/usr/bin/python3"));
+        assert_eq!(
+            event.target_path,
+            PathBuf::from("/home/alice/.aws/credentials")
+        );
+    }
+
+    #[test]
+    fn build_access_event_requires_exe_without_pid() {
+        let result = build_access_event(
+            PathBuf::from("/home/alice/.aws/credentials"),
+            None,
+            Some(1000),
+            None,
+        );
+
+        assert!(result.is_err());
     }
 }
