@@ -37,6 +37,13 @@ pub struct AllowRule {
     pub path_group: String,
 }
 
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct AllowRuleBehaviorKey<'a> {
+    uid: u32,
+    exe: &'a PathBuf,
+    path_group: &'a str,
+}
+
 pub fn load_config(path: &Path) -> anyhow::Result<Config> {
     let contents = fs::read_to_string(path)?;
     let config: Config = toml::from_str(&contents)?;
@@ -44,12 +51,13 @@ pub fn load_config(path: &Path) -> anyhow::Result<Config> {
 }
 
 pub fn validate_config(config: &Config) -> Vec<String> {
-    let mut errors:Vec<String> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
 
     validate_user_groups(config, &mut errors);
     validate_allow_rule_groups(config, &mut errors);
     validate_duplicate_group_names(config, &mut errors);
     validate_duplicate_rule_names(config, &mut errors);
+    validate_duplicate_allow_rule_behavior(config, &mut errors);
 
     errors
 }
@@ -75,17 +83,17 @@ fn validate_user_groups(config: &Config, errors: &mut Vec<String>) {
 fn validate_allow_rule_groups(config: &Config, errors: &mut Vec<String>) {
     for rule in &config.allow_rules {
         let group_exists = config
-                .protected_groups
-                .iter()
-                .any(|group| group.name == rule.path_group);
+            .protected_groups
+            .iter()
+            .any(|group| group.name == rule.path_group);
 
-            if !group_exists {
-                errors.push(format!(
-                    "allow rule '{}' references unknown path group '{}'",
-                    rule.name, rule.path_group
-                ));
-            }
+        if !group_exists {
+            errors.push(format!(
+                "allow rule '{}' references unknown path group '{}'",
+                rule.name, rule.path_group
+            ));
         }
+    }
 }
 
 fn validate_duplicate_group_names(config: &Config, errors: &mut Vec<String>) {
@@ -93,10 +101,7 @@ fn validate_duplicate_group_names(config: &Config, errors: &mut Vec<String>) {
 
     for group in &config.protected_groups {
         if !seen.insert(&group.name) {
-            errors.push(format!(
-                "duplicate protected group name '{}'",
-                group.name
-            ));
+            errors.push(format!("duplicate protected group name '{}'", group.name));
         }
     }
 }
@@ -106,9 +111,27 @@ fn validate_duplicate_rule_names(config: &Config, errors: &mut Vec<String>) {
 
     for rule in &config.allow_rules {
         if !seen.insert(&rule.name) {
+            errors.push(format!("duplicate allow rule name '{}'", rule.name));
+        }
+    }
+}
+
+fn validate_duplicate_allow_rule_behavior(config: &Config, errors: &mut Vec<String>) {
+    let mut seen = std::collections::HashSet::new();
+
+    for rule in &config.allow_rules {
+        let key = AllowRuleBehaviorKey {
+            uid: rule.uid,
+            exe: &rule.exe,
+            path_group: &rule.path_group,
+        };
+
+        if !seen.insert(key) {
             errors.push(format!(
-                "duplicate allow rule name '{}'",
-                rule.name
+                "duplicate allow rule behavior: uid {}, exe '{}', path_group '{}'",
+                rule.uid,
+                rule.exe.display(),
+                rule.path_group
             ));
         }
     }
@@ -198,7 +221,28 @@ mod tests {
         let errors = validate_config(&config);
 
         assert_eq!(errors.len(), 1);
-        println!("{}",errors[0].to_string());
+        println!("{}", errors[0]);
         assert!(errors[0].contains("duplicate allow rule name 'Allow AWS CLI'"));
+    }
+
+    #[test]
+    fn detects_duplicate_allow_rule_behavior() {
+        let mut config = sample_config();
+
+        config.allow_rules.push(AllowRule {
+            name: "Another AWS CLI rule".to_string(),
+            uid: 1000,
+            exe: PathBuf::from("/usr/bin/aws"),
+            path_group: "aws".to_string(),
+        });
+
+        let errors = validate_config(&config);
+
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0].contains("duplicate allow rule behavior"),
+            "unexpected error: {:?}",
+            errors
+        );
     }
 }

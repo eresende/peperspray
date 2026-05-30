@@ -1,6 +1,6 @@
-use serde::Serialize;
 use crate::config::{Config, Mode};
 use crate::event::AccessEvent;
+use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "decision", rename_all = "lowercase")]
@@ -35,9 +35,7 @@ pub fn decide(config: &Config, event: &AccessEvent) -> Decision {
     };
 
     let matched_rule = config.allow_rules.iter().find(|rule| {
-        rule.uid == event.uid
-            && rule.exe == event.exe
-            && rule.path_group == matched_group
+        rule.uid == event.uid && rule.exe == event.exe && rule.path_group == matched_group
     });
 
     if let Some(rule) = matched_rule {
@@ -53,9 +51,7 @@ pub fn decide(config: &Config, event: &AccessEvent) -> Decision {
 
     match config.mode {
         Mode::Learn => Decision::Allow {
-            reason: format!(
-                "learn mode: would deny access to protected group '{matched_group}'"
-            ),
+            reason: format!("learn mode: would deny access to protected group '{matched_group}'"),
             matched_path_group: Some(matched_group),
             would_deny: true,
         },
@@ -94,9 +90,7 @@ fn find_matching_protected_group(config: &Config, event: &AccessEvent) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{
-        AllowRule, Config, Mode, ProtectedPathGroup, ProtectedUser,
-    };
+    use crate::config::{AllowRule, Config, Mode, ProtectedPathGroup, ProtectedUser};
     use crate::event::Operation;
     use std::path::PathBuf;
 
@@ -115,7 +109,7 @@ mod tests {
                 name: "Allow AWS CLI".to_string(),
                 uid: 1000,
                 exe: PathBuf::from("/usr/bin/aws"),
-                path_group: "aws".to_string()
+                path_group: "aws".to_string(),
             }],
         }
     }
@@ -133,10 +127,7 @@ mod tests {
     fn allow_unprotected_file() {
         let config = sample_config(Mode::Enforce);
 
-        let event = access_event(
-            "/usr/bin/python3",
-            "/home/alice/projects/app/main.py",
-        );
+        let event = access_event("/usr/bin/python3", "/home/alice/projects/app/main.py");
 
         let decision = decide(&config, &event);
 
@@ -147,10 +138,7 @@ mod tests {
     fn allows_matching_rule_in_enforce_mode() {
         let config = sample_config(Mode::Enforce);
 
-        let event = access_event(
-            "/usr/bin/aws",
-            "/home/alice/.aws/credentials",
-        );
+        let event = access_event("/usr/bin/aws", "/home/alice/.aws/credentials");
 
         let decision = decide(&config, &event);
 
@@ -161,10 +149,7 @@ mod tests {
     fn denies_unknown_executable_in_enforce_mode() {
         let config = sample_config(Mode::Enforce);
 
-        let event = access_event(
-            "/usr/bin/python3",
-            "/home/alice/.aws/credentials",
-        );
+        let event = access_event("/usr/bin/python3", "/home/alice/.aws/credentials");
 
         let decision = decide(&config, &event);
 
@@ -175,15 +160,10 @@ mod tests {
     fn allows_unknown_executable_in_learn_mode() {
         let config = sample_config(Mode::Learn);
 
-        let event = access_event(
-            "/usr/bin/python3",
-            "/home/alice/.aws/credentials",
-        );
+        let event = access_event("/usr/bin/python3", "/home/alice/.aws/credentials");
 
         let decision = decide(&config, &event);
 
         assert!(matches!(decision, Decision::Allow { .. }));
     }
 }
-
-

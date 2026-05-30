@@ -56,16 +56,10 @@ pub fn print_json_log(log: &DecisionLog) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn append_jsonl_log(
-    path: &Path,
-    log: &DecisionLog,
-) -> anyhow::Result<()> {
+pub fn append_jsonl_log(path: &Path, log: &DecisionLog) -> anyhow::Result<()> {
     let json = serde_json::to_string(&log)?;
 
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
 
     writeln!(file, "{json}")?;
 
@@ -82,14 +76,9 @@ pub fn read_jsonl_logs(path: &Path) -> anyhow::Result<Vec<OwnedDecisionLog>> {
             continue;
         }
 
-        let log: OwnedDecisionLog = serde_json::from_str(line)
-            .map_err(|err| {
-                anyhow::anyhow!(
-                    "failed to parse log line {}: {}",
-                    line_number + 1,
-                    err
-                )
-            })?;
+        let log: OwnedDecisionLog = serde_json::from_str(line).map_err(|err| {
+            anyhow::anyhow!("failed to parse log line {}: {}", line_number + 1, err)
+        })?;
 
         logs.push(log);
     }

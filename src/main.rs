@@ -1,7 +1,8 @@
 mod config;
 mod event;
-mod policy;
 mod logging;
+mod policy;
+mod process;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
@@ -109,8 +110,10 @@ enum Command {
 
         #[arg(long)]
         write_suggestions: Option<PathBuf>,
-    },
 
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -139,7 +142,6 @@ fn main() -> anyhow::Result<()> {
                 std::process::exit(1);
             }
         }
-
 
         Command::TestAccess {
             target_path,
@@ -225,15 +227,18 @@ fn main() -> anyhow::Result<()> {
             json,
             toml,
             write_suggestions,
+            force,
         } => {
             if json && toml {
                 anyhow::bail!("--json and --toml cannot be used together");
             }
 
             if write_suggestions.is_some() && (json || toml) {
-                anyhow::bail!(
-                    "--write-suggestions cannot be used together with --json or --toml"
-                );
+                anyhow::bail!("--write-suggestions cannot be used together with --json or --toml");
+            }
+
+            if force && write_suggestions.is_none() {
+                anyhow::bail!("--force can only be used with --write-suggestions");
             }
 
             let logs = logging::read_jsonl_logs(&log_file)
@@ -242,8 +247,9 @@ fn main() -> anyhow::Result<()> {
             let candidates = build_review_candidates(&logs);
 
             if let Some(path) = write_suggestions {
-                write_review_suggestions(&path, &candidates)
-                    .with_context(|| format!("failed to write suggestions to {}", path.display()))?;
+                write_review_suggestions(&path, &candidates, force).with_context(|| {
+                    format!("failed to write suggestions to {}", path.display())
+                })?;
 
                 println!(
                     "Wrote {} to {}",
@@ -252,7 +258,7 @@ fn main() -> anyhow::Result<()> {
                 );
             } else if json {
                 print_review_candidates_json(&candidates)?;
-            }else if toml {
+            } else if toml {
                 print_review_candidates_toml(&candidates);
             } else {
                 print_review_candidates(&candidates);
@@ -322,7 +328,7 @@ fn filter_logs_by_decision(
         .collect()
 }
 
-fn find_log_by_event_id<'a>(
+fn find_log_by_event_id(
     logs: &[logging::OwnedDecisionLog],
     event_id: Uuid,
 ) -> Option<&logging::OwnedDecisionLog> {
@@ -343,7 +349,6 @@ fn print_log_detail(log: &logging::OwnedDecisionLog) {
     println!("  {}", log.reason);
 }
 
-
 fn log_to_json(log: &logging::OwnedDecisionLog) -> anyhow::Result<String> {
     Ok(serde_json::to_string_pretty(log)?)
 }
@@ -353,9 +358,7 @@ fn print_log_json(log: &logging::OwnedDecisionLog) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn build_review_candidates(
-    logs: &[logging::OwnedDecisionLog],
-) -> Vec<ReviewCandidate> {
+fn build_review_candidates(logs: &[logging::OwnedDecisionLog]) -> Vec<ReviewCandidate> {
     let mut counts: std::collections::HashMap<ReviewCandidateKey, usize> =
         std::collections::HashMap::new();
 
@@ -371,7 +374,7 @@ fn build_review_candidates(
         let key = ReviewCandidateKey {
             uid: log.uid,
             exe: log.exe.clone(),
-            path_group: path_group.clone()
+            path_group: path_group.clone(),
         };
 
         *counts.entry(key).or_insert(0) += 1;
@@ -448,17 +451,12 @@ fn review_candidate_to_output(candidate: &ReviewCandidate) -> ReviewCandidateOut
         exe: candidate.key.exe.clone(),
         path_group: candidate.key.path_group.clone(),
         event_count: candidate.event_count,
-        suggested_name: suggested_allow_rule_name(candidate)
+        suggested_name: suggested_allow_rule_name(candidate),
     }
 }
 
-fn review_candidates_to_output(
-    candidates: &[ReviewCandidate],
-) -> Vec<ReviewCandidateOutput> {
-    candidates
-        .iter()
-        .map(review_candidate_to_output)
-        .collect()
+fn review_candidates_to_output(candidates: &[ReviewCandidate]) -> Vec<ReviewCandidateOutput> {
+    candidates.iter().map(review_candidate_to_output).collect()
 }
 
 fn review_candidates_to_json(candidates: &[ReviewCandidate]) -> anyhow::Result<String> {
@@ -500,7 +498,15 @@ fn print_review_candidates_toml(candidates: &[ReviewCandidate]) {
 fn write_review_suggestions(
     path: &Path,
     candidates: &[ReviewCandidate],
+    force: bool,
 ) -> anyhow::Result<()> {
+    if path.exists() && !force {
+        anyhow::bail!(
+            "{} already exists; use --force to overwrite it",
+            path.display()
+        );
+    }
+
     let toml = review_candidates_to_toml(candidates);
 
     std::fs::write(path, toml)?;
@@ -514,7 +520,6 @@ fn allow_rule_count_text(count: usize) -> String {
         n => format!("{n} suggested allow rules"),
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -540,7 +545,7 @@ mod tests {
 
     #[test]
     fn select_last_none_returns_all_logs() {
-        let logs = vec![fake_log(1), fake_log(2), fake_log(3)];
+        let logs = [fake_log(1), fake_log(2), fake_log(3)];
         let refs: Vec<&logging::OwnedDecisionLog> = logs.iter().collect();
 
         let selected = select_last_logs(&refs, None);
@@ -550,7 +555,7 @@ mod tests {
 
     #[test]
     fn select_last_returns_last_n_logs() {
-        let logs = vec![fake_log(1), fake_log(2), fake_log(3)];
+        let logs = [fake_log(1), fake_log(2), fake_log(3)];
         let refs: Vec<&logging::OwnedDecisionLog> = logs.iter().collect();
 
         let selected = select_last_logs(&refs, Some(2));
@@ -562,7 +567,7 @@ mod tests {
 
     #[test]
     fn select_last_larger_than_log_count_returns_all_logs() {
-        let logs = vec![fake_log(1), fake_log(2)];
+        let logs = [fake_log(1), fake_log(2)];
         let refs: Vec<&logging::OwnedDecisionLog> = logs.iter().collect();
 
         let selected = select_last_logs(&refs, None);
@@ -572,7 +577,7 @@ mod tests {
 
     #[test]
     fn select_last_zero_returns_no_logs() {
-        let logs = vec![fake_log(1), fake_log(2)];
+        let logs = [fake_log(1), fake_log(2)];
         let refs: Vec<&logging::OwnedDecisionLog> = logs.iter().collect();
 
         let selected = select_last_logs(&refs, Some(0));
@@ -582,7 +587,7 @@ mod tests {
 
     #[test]
     fn filter_logs_by_decision_returns_all_when_no_filter() {
-        let mut logs = vec![fake_log(1), fake_log(2)];
+        let mut logs = [fake_log(1), fake_log(2)];
         logs[1].decision = "deny".to_string();
 
         let selected = filter_logs_by_decision(&logs, None);
@@ -592,7 +597,7 @@ mod tests {
 
     #[test]
     fn filter_logs_by_decision_returns_only_allow() {
-        let mut logs = vec![fake_log(1), fake_log(2), fake_log(3)];
+        let mut logs = [fake_log(1), fake_log(2), fake_log(3)];
         logs[1].decision = "deny".to_string();
 
         let selected = filter_logs_by_decision(&logs, Some(DecisionFilter::Allow));
@@ -603,7 +608,7 @@ mod tests {
 
     #[test]
     fn filter_logs_by_decision_returns_only_deny() {
-        let mut logs = vec![fake_log(1), fake_log(2), fake_log(3)];
+        let mut logs = [fake_log(1), fake_log(2), fake_log(3)];
         logs[0].decision = "deny".to_string();
         logs[2].decision = "deny".to_string();
 
@@ -615,7 +620,7 @@ mod tests {
 
     #[test]
     fn logs_to_json_outputs_array() {
-        let logs = vec![fake_log(1), fake_log(2)];
+        let logs = [fake_log(1), fake_log(2)];
         let refs: Vec<&logging::OwnedDecisionLog> = logs.iter().collect();
 
         let json = logs_to_json(&refs).expect("logs should serialize");
@@ -628,7 +633,7 @@ mod tests {
 
     #[test]
     fn find_log_by_event_id_returns_matching_log() {
-        let logs = vec![fake_log(1), fake_log(2), fake_log(3)];
+        let logs = [fake_log(1), fake_log(2), fake_log(3)];
         let wanted_id = logs[1].event_id;
 
         let found = find_log_by_event_id(&logs, wanted_id);
@@ -640,12 +645,11 @@ mod tests {
 
     #[test]
     fn find_log_by_event_id_returns_none_for_missing_log() {
-        let logs = vec![fake_log(1), fake_log(2), fake_log(3)];
+        let logs = [fake_log(1), fake_log(2), fake_log(3)];
 
         let found = find_log_by_event_id(
             &logs,
-            Uuid::parse_str("00000000-0000-0000-0000-000000000000")
-                .expect("valid uuid"),
+            Uuid::parse_str("00000000-0000-0000-0000-000000000000").expect("valid uuid"),
         );
 
         assert!(found.is_none());
@@ -664,7 +668,7 @@ mod tests {
 
     #[test]
     fn build_review_candidates_groups_matching_events() {
-        let mut logs = vec![fake_log(1), fake_log(2), fake_log(3)];
+        let mut logs = [fake_log(1), fake_log(2), fake_log(3)];
 
         logs[0].exe = PathBuf::from("/usr/bin/python3");
         logs[0].would_deny = true;
@@ -713,7 +717,7 @@ mod tests {
 
     #[test]
     fn review_candidates_to_json_array() {
-        let candidates = vec![ReviewCandidate {
+        let candidates = [ReviewCandidate {
             key: ReviewCandidateKey {
                 uid: 1000,
                 exe: PathBuf::from("/usr/bin/python3"),
@@ -722,8 +726,8 @@ mod tests {
             event_count: 1,
         }];
 
-        let json = review_candidates_to_json(&candidates)
-            .expect("review candidates should serialize");
+        let json =
+            review_candidates_to_json(&candidates).expect("review candidates should serialize");
 
         assert!(json.starts_with("["));
         assert!(json.contains("\"uid\": 1000"));
@@ -753,7 +757,7 @@ mod tests {
 
     #[test]
     fn review_candidates_to_toml_separates_multiple_rules() {
-        let candidates = vec![
+        let candidates = [
             ReviewCandidate {
                 key: ReviewCandidateKey {
                     uid: 1000,
@@ -795,7 +799,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir should be created");
         let path = dir.path().join("suggested-rules.toml");
 
-        let candidates = vec![ReviewCandidate {
+        let candidates = [ReviewCandidate {
             key: ReviewCandidateKey {
                 uid: 1000,
                 exe: PathBuf::from("/usr/bin/python3"),
@@ -804,13 +808,56 @@ mod tests {
             event_count: 1,
         }];
 
-        write_review_suggestions(&path, &candidates)
-            .expect("suggestions should be written");
+        write_review_suggestions(&path, &candidates, false).expect("suggestions should be written");
 
-        let contents = std::fs::read_to_string(&path)
-            .expect("suggestions should be readable");
+        let contents = std::fs::read_to_string(&path).expect("suggestions should be readable");
 
         assert!(contents.contains("[[allow_rules]]"));
         assert!(contents.contains("name = \"Allow python3 to access aws\""));
+    }
+
+    #[test]
+    fn write_review_suggestions_refuses_to_overwrite_without_force() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let path = dir.path().join("suggested-rules.toml");
+
+        let candidates = [ReviewCandidate {
+            key: ReviewCandidateKey {
+                uid: 1000,
+                exe: PathBuf::from("/usr/bin/python3"),
+                path_group: "aws".to_string(),
+            },
+            event_count: 1,
+        }];
+
+        write_review_suggestions(&path, &candidates, false).expect("first write should succeed");
+
+        let result = write_review_suggestions(&path, &candidates, false);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn write_review_suggestions_overwrites_with_force() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let path = dir.path().join("suggested-rules.toml");
+
+        let candidates = [ReviewCandidate {
+            key: ReviewCandidateKey {
+                uid: 1000,
+                exe: PathBuf::from("/usr/bin/python3"),
+                path_group: "aws".to_string(),
+            },
+            event_count: 1,
+        }];
+
+        std::fs::write(&path, "old content").expect("initial file should be written");
+
+        write_review_suggestions(&path, &candidates, true).expect("force write should succeed");
+
+        let contents = std::fs::read_to_string(&path).expect("suggestions should be readable");
+
+        assert!(contents.contains("[[allow_rules]]"));
+        assert!(!contents.contains("old contents"));
     }
 }
