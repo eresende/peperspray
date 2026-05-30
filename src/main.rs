@@ -598,6 +598,12 @@ fn allow_rule_count_text(count: usize) -> String {
 
 fn print_process_info(info: &process::ProcessInfo) {
     println!("PID:       {}", info.pid);
+    println!(
+        "PPID:      {}",
+        info.ppid
+            .map(|ppid| ppid.to_string())
+            .unwrap_or_else(|| "<unknown>".to_string())
+    );
     println!("UID:       {}", info.uid);
     println!("EXE:       {}", info.exe.display());
     println!("CWD:       {}", info.cwd.display());
