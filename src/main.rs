@@ -114,6 +114,10 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+
+    InspectProcess {
+        pid: u32,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -264,6 +268,14 @@ fn main() -> anyhow::Result<()> {
                 print_review_candidates(&candidates);
             }
         }
+
+        Command::InspectProcess { pid } => {
+            let info = process::inspect_process(pid)
+                .with_context(|| format!("failed to inspect proces {pid}"))?;
+
+            print_process_info(&info);
+        }
+
     }
 
     Ok(())
@@ -518,6 +530,19 @@ fn allow_rule_count_text(count: usize) -> String {
     match count {
         1 => "1 suggested allow rule".to_string(),
         n => format!("{n} suggested allow rules"),
+    }
+}
+
+fn print_process_info(info: &process::ProcessInfo) {
+    println!("PID:       {}", info.pid);
+    println!("UID:       {}", info.uid);
+    println!("EXE:       {}", info.exe.display());
+    println!("CWD:       {}", info.cwd.display());
+
+    if info.cmdline.is_empty() {
+        println!("CMDLINE:   <empty>");
+    } else {
+        println!("CMDLINE:   {}", info.cmdline.join(" "));
     }
 }
 
