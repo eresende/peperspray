@@ -41,8 +41,8 @@ fn read_process_uid(pid: u32) -> anyhow::Result<u32> {
 
 fn read_process_cmdline(pid: u32) -> anyhow::Result<Vec<String>> {
     let cmdline_path = format!("/proc/{pid}/cmdline");
-    let bytes = fs::read(&cmdline_path)
-        .with_context(|| format!("failed to read {cmdline_path}"))?;
+    let bytes =
+        fs::read(&cmdline_path).with_context(|| format!("failed to read {cmdline_path}"))?;
 
     Ok(parse_cmdline(&bytes))
 }
@@ -122,4 +122,3 @@ Gid:\t1000\t1000\t1000\t1000
         assert!(args.is_empty());
     }
 }
-

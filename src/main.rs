@@ -75,7 +75,6 @@ enum Command {
 
         #[arg(long)]
         log_file: Option<PathBuf>,
-
     },
 
     Logs {
@@ -275,7 +274,6 @@ fn main() -> anyhow::Result<()> {
 
             print_process_info(&info);
         }
-
     }
 
     Ok(())
@@ -292,8 +290,11 @@ fn build_access_event(
             .with_context(|| format!("failed to inspect process {pid}"))?;
 
         return Ok(AccessEvent {
+            pid: Some(process_info.pid),
             uid: process_info.uid,
             exe: process_info.exe,
+            cwd: Some(process_info.cwd),
+            cmdline: process_info.cmdline,
             target_path,
             operation: Operation::OpenRead,
         });
@@ -303,8 +304,11 @@ fn build_access_event(
     let uid = uid.context("--uid is required when --pid is not provided")?;
 
     Ok(AccessEvent {
+        pid: None,
         uid,
         exe,
+        cwd: None,
+        cmdline: Vec::new(),
         target_path,
         operation: Operation::OpenRead,
     })
@@ -322,10 +326,16 @@ fn print_decision(decision: &Decision) {
 }
 
 fn print_log_entry(log: &logging::OwnedDecisionLog) {
+    let pid_text = log
+        .pid
+        .map(|pid| format!("pid={pid}"))
+        .unwrap_or_else(|| "pid=?".to_string());
+
     println!(
-        "{} {} uid={} {} -> {}",
+        "{}  {}  {}  uid={}  {}  ->  {}",
         log.timestamp,
         log.decision.to_uppercase(),
+        pid_text,
         log.uid,
         log.exe.display(),
         log.target_path.display()
@@ -381,8 +391,28 @@ fn print_log_detail(log: &logging::OwnedDecisionLog) {
     println!();
     println!("Timestamp:   {}", log.timestamp);
     println!("Decision:    {}", log.decision.to_uppercase());
+    println!(
+        "PID:         {}",
+        log.pid
+            .map(|pid| pid.to_string())
+            .unwrap_or_else(|| "<unknown>".to_string())
+    );
     println!("UID:         {}", log.uid);
     println!("Executable:  {}", log.exe.display());
+    println!(
+        "CWD:         {}",
+        log.cwd
+            .as_ref()
+            .map(|cwd| cwd.display().to_string())
+            .unwrap_or_else(|| "<unknown>".to_string())
+    );
+
+    if log.cmdline.is_empty() {
+        println!("Cmdline:    <unknown>");
+    } else {
+        println!("Cmdline:    {}", log.cmdline.join(" "));
+    }
+
     println!("Target:      {}", log.target_path.display());
     println!("Operation:   {:?}", log.operation);
     println!();
@@ -586,8 +616,11 @@ mod tests {
         logging::OwnedDecisionLog {
             event_id: Uuid::new_v4(),
             timestamp: Utc::now(),
+            pid: None,
             uid: 1000,
             exe: PathBuf::from(format!("/usr/bin/tool-{index}")),
+            cwd: None,
+            cmdline: Vec::new(),
             target_path: PathBuf::from(format!("/tmp/file-{index}")),
             operation: event::Operation::OpenRead,
             decision: "allow".to_string(),
@@ -922,7 +955,8 @@ mod tests {
             Some(PathBuf::from("/usr/bin/python3")),
             Some(1000),
             None,
-        ).expect("event should be built");
+        )
+        .expect("event should be built");
 
         assert_eq!(event.uid, 1000);
         assert_eq!(event.exe, PathBuf::from("/usr/bin/python3"));

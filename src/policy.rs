@@ -116,8 +116,11 @@ mod tests {
 
     fn access_event(exe: &str, target_path: &str) -> AccessEvent {
         AccessEvent {
+            pid: None,
             uid: 1000,
             exe: PathBuf::from(exe),
+            cwd: None,
+            cmdline: Vec::new(),
             target_path: PathBuf::from(target_path),
             operation: Operation::OpenRead,
         }

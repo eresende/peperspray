@@ -23,8 +23,19 @@ pub struct DecisionLog<'a> {
 pub struct OwnedDecisionLog {
     pub event_id: Uuid,
     pub timestamp: DateTime<Utc>,
+
+    #[serde(default)]
+    pub pid: Option<u32>,
+
     pub uid: u32,
     pub exe: PathBuf,
+
+    #[serde(default)]
+    pub cwd: Option<PathBuf>,
+
+    #[serde(default)]
+    pub cmdline: Vec<String>,
+
     pub target_path: PathBuf,
     pub operation: Operation,
     pub decision: String,
