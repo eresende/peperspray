@@ -613,6 +613,40 @@ fn print_process_info(info: &process::ProcessInfo) {
     } else {
         println!("CMDLINE:   {}", info.cmdline.join(" "));
     }
+
+    if info.parent_chain.is_empty() {
+        println!();
+        println!("Parent chain: <empty>");
+    } else {
+        println!();
+        println!("Parent chain:");
+
+        for parent in &info.parent_chain {
+            let exe = parent
+                .exe
+                .as_ref()
+                .map(|exe| exe.display().to_string())
+                .unwrap_or_else(|| "<unknown>".to_string());
+
+            let cmdline = if parent.cmdline.is_empty() {
+                "<empty>".to_string()
+            } else {
+                parent.cmdline.join(" ")
+            };
+
+            println!(
+                "  pid={} ppid={} uid={} exe={} cmdline={}",
+                parent.pid,
+                parent
+                    .ppid
+                    .map(|ppid| ppid.to_string())
+                    .unwrap_or_else(|| "<unknown>".to_string()),
+                parent.uid,
+                exe,
+                cmdline
+            );
+        }
+    }
 }
 
 #[cfg(test)]

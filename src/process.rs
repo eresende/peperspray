@@ -10,12 +10,22 @@ pub struct ProcessInfo {
     pub exe: PathBuf,
     pub cwd: PathBuf,
     pub cmdline: Vec<String>,
+    pub parent_chain: Vec<ProcessChainEntry>,
 }
 
 #[derive(Debug, Clone)]
 struct ProcessStatus {
     uid: u32,
     ppid: Option<u32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcessChainEntry {
+    pub pid: u32,
+    pub ppid: Option<u32>,
+    pub uid: u32,
+    pub exe: Option<PathBuf>,
+    pub cmdline: Vec<String>,
 }
 
 fn read_process_status(pid: u32) -> anyhow::Result<ProcessStatus> {
@@ -40,6 +50,7 @@ pub fn inspect_process(pid: u32) -> anyhow::Result<ProcessInfo> {
     let cwd = fs::read_link(proc_dir.join("cwd"))
         .with_context(|| format!("failed to read /proc/{pid}/cwd"))?;
     let cmdline = read_process_cmdline(pid)?;
+    let parent_chain = inspect_parent_chain(status.ppid, 8);
 
     Ok(ProcessInfo {
         pid,
@@ -48,6 +59,7 @@ pub fn inspect_process(pid: u32) -> anyhow::Result<ProcessInfo> {
         exe,
         cwd,
         cmdline,
+        parent_chain,
     })
 }
 
@@ -99,6 +111,50 @@ fn parse_cmdline(bytes: &[u8]) -> Vec<String> {
         .filter(|part| !part.is_empty())
         .map(|part| String::from_utf8_lossy(part).to_string())
         .collect()
+}
+
+fn inspect_process_chain_entry(pid: u32) -> anyhow::Result<ProcessChainEntry> {
+    let proc_dir = PathBuf::from(format!("/proc/{pid}"));
+    let status = read_process_status(pid)?;
+
+    let exe = fs::read_link(proc_dir.join("exe")).ok();
+    let cmdline = read_process_cmdline(pid).unwrap_or_default();
+
+    Ok(ProcessChainEntry {
+        pid,
+        ppid: status.ppid,
+        uid: status.uid,
+        exe,
+        cmdline,
+    })
+}
+
+pub fn inspect_parent_chain(start_ppid: Option<u32>, max_depth: usize) -> Vec<ProcessChainEntry> {
+    let mut chain = Vec::new();
+    let mut current_pid = start_ppid;
+
+    for _ in 0..max_depth {
+        let Some(pid) = current_pid else {
+            break;
+        };
+
+        if pid == 0 {
+            break;
+        }
+
+        let Ok(entry) = inspect_process_chain_entry(pid) else {
+            break;
+        };
+
+        current_pid = entry.ppid;
+        chain.push(entry);
+
+        if current_pid == Some(pid) {
+            break;
+        }
+    }
+
+    chain
 }
 
 #[cfg(test)]
