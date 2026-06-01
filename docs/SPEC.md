@@ -44,9 +44,9 @@ permission-event probe, run a fanotify loop for one marked path, convert
 `FAN_OPEN_PERM` metadata into the portable `AccessEvent` model, and map policy
 decisions to `FAN_ALLOW` or `FAN_DENY` responses.
 
-The remaining enforcement proof is a privileged Linux integration test that
-starts the daemon against temporary protected files and proves allowed/denied
-reads end to end.
+The remaining enforcement proof is to run and harden the ignored privileged
+Linux integration tests on Ubuntu 24.04. Those tests start the daemon against
+temporary protected files and prove allowed/denied reads end to end.
 
 Failure behavior is tracked separately in
 [FAILURE_BEHAVIOR.md](FAILURE_BEHAVIOR.md).

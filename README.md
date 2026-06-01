@@ -298,6 +298,13 @@ sudo target/debug/pepersprayd \
 This path still needs privileged Linux integration tests before it should be
 treated as host protection.
 
+To run the ignored privileged fanotify tests on a Linux host:
+
+```sh
+cargo test --test privileged_fanotify --no-run
+sudo "$(find target/debug/deps -maxdepth 1 -type f -executable -name 'privileged_fanotify-*' | head -n1)" --ignored --nocapture
+```
+
 ### Show policy status
 
 ```sh
@@ -493,7 +500,7 @@ logging, setup, status, and review behavior remains easier to test in isolation.
 
 Suggested next milestones:
 
-1. Add integration tests for protected temporary files on Linux.
+1. Run and harden the privileged fanotify integration tests on Ubuntu 24.04.
 2. Add installed service management commands.
 3. Add `/etc/peperspray/config.toml` and `/var/log/peperspray/events.jsonl`
     defaults for installed mode.
