@@ -132,4 +132,17 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+
+    Service {
+        #[command(subcommand)]
+        command: ServiceCommand,
+    },
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum ServiceCommand {
+    Status,
+    Start,
+    Stop,
+    Restart,
 }

@@ -48,6 +48,10 @@ Implemented commands:
 - `status`
 - `learn`
 - `enforce`
+- `service status`
+- `service start`
+- `service stop`
+- `service restart`
 - `policy-validate`
 - `test-access`
 - `inspect-process`
@@ -86,13 +90,13 @@ Implemented policy and CLI capabilities:
 - Minimal `pepersprayd` skeleton with config validation and lifecycle JSONL logs
 - Experimental `fanotify` permission-event loop, event conversion, decision
   logging, and FAN_ALLOW/FAN_DENY responses
+- Service management wrappers around `systemctl`
+- Installed-layout scaffolding under `packaging/`
 
 Not implemented yet:
 
 - privileged Linux integration tests proving real read blocking
-- installation layout under `/etc/peperspray/` and `/var/log/peperspray/`
 - `.deb` packaging
-- installed `systemd` service management
 - advanced tamper resistance
 
 ## Requirements
@@ -305,6 +309,20 @@ cargo test --test privileged_fanotify --no-run
 sudo "$(find target/debug/deps -maxdepth 1 -type f -executable -name 'privileged_fanotify-*' | head -n1)" --ignored --nocapture
 ```
 
+### Manage installed service
+
+These commands wrap `systemctl` for the installed `pepersprayd` service:
+
+```sh
+cargo run -- service status
+sudo cargo run -- service start
+sudo cargo run -- service stop
+sudo cargo run -- service restart
+```
+
+The service is intended to run as root. Installed layout notes live in
+`packaging/INSTALL_LAYOUT.md`.
+
 ### Show policy status
 
 ```sh
@@ -488,8 +506,10 @@ The current code is organized around the planned backend split:
 - `src/setup.rs`: starter config generation and local tool detection
 - `src/status.rs`: status output formatting
 - `src/review.rs`: learned-access grouping and suggested allow-rule generation
+- `src/service.rs`: systemd service management wrappers
 - `src/commands/logs.rs`: log filtering, lookup, and rendering
 - `src/bin/pepersprayd.rs`: daemon entrypoint
+- `packaging/INSTALL_LAYOUT.md`: intended installed filesystem layout
 - `packaging/systemd/pepersprayd.service`: starter systemd unit
 - `docs/FAILURE_BEHAVIOR.md`: intended failure behavior for MVP hardening
 
@@ -501,15 +521,12 @@ logging, setup, status, and review behavior remains easier to test in isolation.
 Suggested next milestones:
 
 1. Run and harden the privileged fanotify integration tests on Ubuntu 24.04.
-2. Add installed service management commands.
-3. Add `/etc/peperspray/config.toml` and `/var/log/peperspray/events.jsonl`
-    defaults for installed mode.
-4. Add `.deb` packaging.
-5. Add uninstall/purge behavior.
-6. Evaluate symlink, hard-link, bind-mount, and file-replacement behavior.
-7. Add optional binary identity hardening, such as inode or hash matching.
-8. Add desktop notification or `why last` UX.
-9. Add release documentation.
+2. Add `.deb` packaging.
+3. Add uninstall/purge behavior.
+4. Evaluate symlink, hard-link, bind-mount, and file-replacement behavior.
+5. Add optional binary identity hardening, such as inode or hash matching.
+6. Add desktop notification or `why last` UX.
+7. Add release documentation.
 
 ## Current MVP Boundary
 

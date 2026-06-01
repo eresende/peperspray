@@ -1,3 +1,4 @@
+use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 
 fn bin() -> &'static str {
@@ -145,4 +146,38 @@ fn daemon_check_validates_config_and_writes_lifecycle_log() {
     assert!(stdout.contains("Daemon config is valid."));
     assert!(log.contains("\"component\":\"pepersprayd\""));
     assert!(log.contains("\"message\":\"daemon config loaded\""));
+}
+
+#[test]
+fn service_restart_invokes_systemctl_wrapper() {
+    let dir = tempfile::tempdir().expect("temp dir should be created");
+    let systemctl = dir.path().join("systemctl-mock");
+    let args_file = dir.path().join("args.txt");
+
+    std::fs::write(
+        &systemctl,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n",
+            args_file.display()
+        ),
+    )
+    .expect("mock systemctl should be written");
+
+    let mut permissions = std::fs::metadata(&systemctl)
+        .expect("mock metadata should be readable")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&systemctl, permissions).expect("mock should be executable");
+
+    let output = Command::new(bin())
+        .env("PEPERSPRAY_SYSTEMCTL", &systemctl)
+        .args(["service", "restart"])
+        .output()
+        .expect("command should run");
+
+    assert!(output.status.success());
+
+    let args = std::fs::read_to_string(args_file).expect("args should be written");
+
+    assert_eq!(args, "restart\npepersprayd\n");
 }

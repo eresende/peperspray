@@ -1,9 +1,11 @@
 use anyhow::Context;
 use clap::Parser;
-use peperspray::cli::{Cli, Command};
+use peperspray::cli::{Cli, Command, ServiceCommand};
 use peperspray::event::{AccessEvent, Operation};
 use peperspray::policy::Decision;
-use peperspray::{commands, config, logging, paths, policy, process, review, setup, status};
+use peperspray::{
+    commands, config, logging, paths, policy, process, review, service, setup, status,
+};
 use std::path::PathBuf;
 
 fn main() -> anyhow::Result<()> {
@@ -251,6 +253,17 @@ fn main() -> anyhow::Result<()> {
                 setup::print_setup_tool_detection(&statuses);
                 println!("Wrote starter config to {}", output.display());
             }
+        }
+
+        Command::Service { command } => {
+            let action = match command {
+                ServiceCommand::Status => service::ServiceAction::Status,
+                ServiceCommand::Start => service::ServiceAction::Start,
+                ServiceCommand::Stop => service::ServiceAction::Stop,
+                ServiceCommand::Restart => service::ServiceAction::Restart,
+            };
+
+            service::run_systemctl(action)?;
         }
     }
 

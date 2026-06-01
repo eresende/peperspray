@@ -1,0 +1,41 @@
+mode = "learn"
+
+[[users]]
+uid = 1000
+groups = ["aws", "ssh", "github", "gcloud", "docker", "npm", "ansible", "git", "dotenv"]
+
+[[protected_groups]]
+name = "aws"
+paths = ["~/.aws"]
+
+[[protected_groups]]
+name = "ssh"
+paths = ["~/.ssh"]
+
+[[protected_groups]]
+name = "github"
+paths = ["~/.config/gh"]
+
+[[protected_groups]]
+name = "gcloud"
+paths = ["~/.config/gcloud"]
+
+[[protected_groups]]
+name = "docker"
+paths = ["~/.docker"]
+
+[[protected_groups]]
+name = "npm"
+paths = ["~/.npmrc"]
+
+[[protected_groups]]
+name = "ansible"
+paths = ["~/.ansible", "~/.ansible/vault_password"]
+
+[[protected_groups]]
+name = "git"
+paths = ["~/.git-credentials", "~/.netrc"]
+
+[[protected_groups]]
+name = "dotenv"
+paths = [".env", ".env.local", ".env.development", ".env.production"]

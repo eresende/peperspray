@@ -9,5 +9,6 @@ pub mod paths;
 pub mod policy;
 pub mod process;
 pub mod review;
+pub mod service;
 pub mod setup;
 pub mod status;
