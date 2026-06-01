@@ -36,6 +36,9 @@ pub struct AllowRule {
     pub uid: u32,
     pub exe: PathBuf,
     pub path_group: String,
+
+    #[serde(default)]
+    pub parent_exe: Option<PathBuf>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -43,6 +46,7 @@ struct AllowRuleBehaviorKey<'a> {
     uid: u32,
     exe: &'a PathBuf,
     path_group: &'a str,
+    parent_exe: Option<&'a PathBuf>,
 }
 
 pub fn load_config(path: &Path) -> anyhow::Result<Config> {
@@ -128,14 +132,19 @@ fn validate_duplicate_allow_rule_behavior(config: &Config, errors: &mut Vec<Stri
             uid: rule.uid,
             exe: &rule.exe,
             path_group: &rule.path_group,
+            parent_exe: rule.parent_exe.as_ref(),
         };
 
         if !seen.insert(key) {
             errors.push(format!(
-                "duplicate allow rule behavior: uid {}, exe '{}', path_group '{}'",
+                "duplicate allow rule behavior: uid {}, exe '{}', path_group '{}', parent_exe '{}'",
                 rule.uid,
                 rule.exe.display(),
-                rule.path_group
+                rule.path_group,
+                rule.parent_exe
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "<none>".to_string())
             ));
         }
     }
@@ -150,6 +159,10 @@ pub fn normalize_config_paths(config: &mut Config) {
 
     for rule in &mut config.allow_rules {
         rule.exe = paths::normalize_path(&rule.exe);
+
+        if let Some(parent_exe) = &rule.parent_exe {
+            rule.parent_exe = Some(paths::normalize_path(parent_exe));
+        }
     }
 }
 
@@ -173,6 +186,7 @@ mod tests {
                 uid: 1000,
                 exe: PathBuf::from("/usr/bin/aws"),
                 path_group: "aws".to_string(),
+                parent_exe: None,
             }],
         }
     }
@@ -232,6 +246,7 @@ mod tests {
             uid: 1000,
             exe: PathBuf::from("/usr/local/bin/aws"),
             path_group: "aws".to_string(),
+            parent_exe: None,
         });
 
         let errors = validate_config(&config);
@@ -250,6 +265,7 @@ mod tests {
             uid: 1000,
             exe: PathBuf::from("/usr/bin/aws"),
             path_group: "aws".to_string(),
+            parent_exe: None,
         });
 
         let errors = validate_config(&config);

@@ -32,6 +32,7 @@ struct ReviewCandidateKey {
     uid: u32,
     exe: PathBuf,
     path_group: String,
+    parent_exe: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -45,6 +46,10 @@ struct ReviewCandidateOutput {
     uid: u32,
     exe: PathBuf,
     path_group: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_exe: Option<PathBuf>,
+
     event_count: usize,
     suggested_name: String,
 }
@@ -484,6 +489,7 @@ fn build_review_candidates(logs: &[logging::OwnedDecisionLog]) -> Vec<ReviewCand
             uid: log.uid,
             exe: log.exe.clone(),
             path_group: path_group.clone(),
+            parent_exe: immediate_parent_exe(log),
         };
 
         *counts.entry(key).or_insert(0) += 1;
@@ -523,6 +529,15 @@ fn print_review_candidates(candidates: &[ReviewCandidate]) {
         println!("   uid:        {}", candidate.key.uid);
         println!("   exe:        {}", candidate.key.exe.display());
         println!("   path_group: {}", candidate.key.path_group);
+        println!(
+            "   parent_exe: {}",
+            candidate
+                .key
+                .parent_exe
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "<none>".to_string())
+        );
         println!("   events:     {}", candidate.event_count);
         println!();
 
@@ -539,11 +554,19 @@ fn executable_name(exe: &std::path::Path) -> String {
 }
 
 fn suggested_allow_rule_name(candidate: &ReviewCandidate) -> String {
-    format!(
-        "Allow {} to access {}",
-        executable_name(&candidate.key.exe),
-        candidate.key.path_group
-    )
+    match &candidate.key.parent_exe {
+        Some(parent_exe) => format!(
+            "Allow {} to access {} from {}",
+            executable_name(&candidate.key.exe),
+            candidate.key.path_group,
+            executable_name(parent_exe)
+        ),
+        None => format!(
+            "Allow {} to access {}",
+            executable_name(&candidate.key.exe),
+            candidate.key.path_group
+        ),
+    }
 }
 
 fn print_candidate_toml(candidate: &ReviewCandidate) {
@@ -559,6 +582,7 @@ fn review_candidate_to_output(candidate: &ReviewCandidate) -> ReviewCandidateOut
         uid: candidate.key.uid,
         exe: candidate.key.exe.clone(),
         path_group: candidate.key.path_group.clone(),
+        parent_exe: candidate.key.parent_exe.clone(),
         event_count: candidate.event_count,
         suggested_name: suggested_allow_rule_name(candidate),
     }
@@ -579,13 +603,19 @@ fn print_review_candidates_json(candidates: &[ReviewCandidate]) -> anyhow::Resul
 }
 
 fn candidate_to_toml(candidate: &ReviewCandidate) -> String {
-    format!(
+    let mut toml = format!(
         "[[allow_rules]]\nname = \"{}\"\nuid = {}\nexe = \"{}\"\npath_group = \"{}\"",
         suggested_allow_rule_name(candidate),
         candidate.key.uid,
         candidate.key.exe.display(),
         candidate.key.path_group
-    )
+    );
+
+    if let Some(parent_exe) = &candidate.key.parent_exe {
+        toml.push_str(&format!("\nparent_exe = \"{}\"", parent_exe.display()));
+    }
+
+    toml
 }
 
 fn review_candidates_to_toml(candidates: &[ReviewCandidate]) -> String {
@@ -681,6 +711,12 @@ fn print_process_info(info: &process::ProcessInfo) {
             );
         }
     }
+}
+
+fn immediate_parent_exe(log: &logging::OwnedDecisionLog) -> Option<PathBuf> {
+    log.parent_chain
+        .first()
+        .and_then(|parent| parent.exe.clone())
 }
 
 #[cfg(test)]
@@ -868,6 +904,7 @@ mod tests {
                 uid: 1000,
                 exe: PathBuf::from("/usr/bin/python3"),
                 path_group: "aws".to_string(),
+                parent_exe: None,
             },
             event_count: 2,
         };
@@ -888,6 +925,7 @@ mod tests {
                 uid: 1000,
                 exe: PathBuf::from("/usr/bin/python3"),
                 path_group: "aws".to_string(),
+                parent_exe: None,
             },
             event_count: 1,
         }];
@@ -908,6 +946,7 @@ mod tests {
                 uid: 1000,
                 exe: PathBuf::from("/usr/bin/python3"),
                 path_group: "aws".to_string(),
+                parent_exe: None,
             },
             event_count: 1,
         };
@@ -929,6 +968,7 @@ mod tests {
                     uid: 1000,
                     exe: PathBuf::from("/usr/bin/python3"),
                     path_group: "aws".to_string(),
+                    parent_exe: None,
                 },
                 event_count: 1,
             },
@@ -937,6 +977,7 @@ mod tests {
                     uid: 1000,
                     exe: PathBuf::from("/usr/bin/git"),
                     path_group: "ssh".to_string(),
+                    parent_exe: None,
                 },
                 event_count: 1,
             },
@@ -970,6 +1011,7 @@ mod tests {
                 uid: 1000,
                 exe: PathBuf::from("/usr/bin/python3"),
                 path_group: "aws".to_string(),
+                parent_exe: None,
             },
             event_count: 1,
         }];
@@ -992,6 +1034,7 @@ mod tests {
                 uid: 1000,
                 exe: PathBuf::from("/usr/bin/python3"),
                 path_group: "aws".to_string(),
+                parent_exe: None,
             },
             event_count: 1,
         }];
@@ -1013,6 +1056,7 @@ mod tests {
                 uid: 1000,
                 exe: PathBuf::from("/usr/bin/python3"),
                 path_group: "aws".to_string(),
+                parent_exe: None,
             },
             event_count: 1,
         }];
@@ -1055,5 +1099,67 @@ mod tests {
         );
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn suggested_allow_rule_name_includes_parent_when_present() {
+        let candidate = ReviewCandidate {
+            key: ReviewCandidateKey {
+                uid: 1000,
+                exe: PathBuf::from("/usr/bin/python3"),
+                path_group: "aws".to_string(),
+                parent_exe: Some(PathBuf::from("/usr/bin/zsh")),
+            },
+            event_count: 1,
+        };
+
+        let name = suggested_allow_rule_name(&candidate);
+
+        assert_eq!(name, "Allow python3 to access aws from zsh");
+    }
+
+    #[test]
+    fn candidate_to_toml_includes_parent_exe_when_present() {
+        let candidate = ReviewCandidate {
+            key: ReviewCandidateKey {
+                uid: 1000,
+                exe: PathBuf::from("/usr/bin/python3"),
+                path_group: "aws".to_string(),
+                parent_exe: Some(PathBuf::from("/usr/bin/zsh")),
+            },
+            event_count: 1,
+        };
+
+        let toml = candidate_to_toml(&candidate);
+
+        assert!(toml.contains("parent_exe = \"/usr/bin/zsh\""));
+        assert!(toml.contains("name = \"Allow python3 to access aws from zsh\""));
+    }
+
+    #[test]
+    fn immediate_parent_exe_returns_first_parent_exe() {
+        let mut log = fake_log(1);
+
+        log.parent_chain = vec![
+            process::ProcessChainEntry {
+                pid: 2000,
+                ppid: Some(1000),
+                uid: 1000,
+                exe: Some(PathBuf::from("/usr/bin/zsh")),
+                cmdline: Vec::new(),
+            },
+            process::ProcessChainEntry {
+                pid: 1000,
+                ppid: Some(1),
+                uid: 1000,
+                exe: Some(PathBuf::from("/usr/lib/systemd/systemd")),
+                cmdline: Vec::new(),
+            },
+        ];
+
+        assert_eq!(
+            immediate_parent_exe(&log),
+            Some(PathBuf::from("/usr/bin/zsh"))
+        );
     }
 }
