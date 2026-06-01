@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+if [ "$1" = "configure" ]; then
+    install -d -o root -g root -m 0755 /etc/peperspray
+    install -d -o root -g root -m 0755 /var/log/peperspray
+
+    if [ ! -e /var/log/peperspray/events.jsonl ]; then
+        install -o root -g root -m 0644 /dev/null /var/log/peperspray/events.jsonl
+    fi
+
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload || true
+    fi
+fi
+
+exit 0

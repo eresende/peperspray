@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
+if [ "$1" = "purge" ]; then
+    rm -f /var/log/peperspray/events.jsonl
+    rmdir /var/log/peperspray 2>/dev/null || true
+    rm -f /etc/peperspray/config.toml
+    rmdir /etc/peperspray 2>/dev/null || true
+fi
+
+exit 0

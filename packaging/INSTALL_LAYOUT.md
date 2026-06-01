@@ -21,3 +21,34 @@ Ownership and permissions:
 
 The service runs as root by default because fanotify permission events and
 policy enforcement require elevated privileges.
+
+## Package Lifecycle
+
+Build a local package with:
+
+```sh
+packaging/build-deb.sh
+```
+
+Install it with:
+
+```sh
+sudo apt install ./target/debian/peperspray_0.1.0_amd64.deb
+```
+
+Remove package-managed files while keeping conffiles where dpkg normally keeps
+them:
+
+```sh
+sudo apt remove peperspray
+```
+
+Purge package-managed config and runtime state:
+
+```sh
+sudo apt purge peperspray
+```
+
+The maintainer scripts stop and disable `pepersprayd.service` during removal and
+remove `/etc/peperspray/config.toml` plus `/var/log/peperspray/events.jsonl`
+during purge.

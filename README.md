@@ -92,11 +92,13 @@ Implemented policy and CLI capabilities:
   logging, and FAN_ALLOW/FAN_DENY responses
 - Service management wrappers around `systemctl`
 - Installed-layout scaffolding under `packaging/`
+- Local `.deb` package build script and Debian maintainer scripts
+- Remove/purge behavior for the installed service, config, and runtime log
 
 Not implemented yet:
 
 - privileged Linux integration tests proving real read blocking
-- `.deb` packaging
+- package lifecycle testing on Ubuntu 24.04
 - advanced tamper resistance
 
 ## Requirements
@@ -323,6 +325,15 @@ sudo cargo run -- service restart
 The service is intended to run as root. Installed layout notes live in
 `packaging/INSTALL_LAYOUT.md`.
 
+### Build a local Debian package
+
+```sh
+packaging/build-deb.sh
+sudo apt install ./target/debian/peperspray_0.1.0_amd64.deb
+sudo apt remove peperspray
+sudo apt purge peperspray
+```
+
 ### Show policy status
 
 ```sh
@@ -510,6 +521,8 @@ The current code is organized around the planned backend split:
 - `src/commands/logs.rs`: log filtering, lookup, and rendering
 - `src/bin/pepersprayd.rs`: daemon entrypoint
 - `packaging/INSTALL_LAYOUT.md`: intended installed filesystem layout
+- `packaging/build-deb.sh`: local `.deb` package builder
+- `packaging/deb/`: Debian metadata and maintainer scripts
 - `packaging/systemd/pepersprayd.service`: starter systemd unit
 - `docs/FAILURE_BEHAVIOR.md`: intended failure behavior for MVP hardening
 
@@ -521,12 +534,11 @@ logging, setup, status, and review behavior remains easier to test in isolation.
 Suggested next milestones:
 
 1. Run and harden the privileged fanotify integration tests on Ubuntu 24.04.
-2. Add `.deb` packaging.
-3. Add uninstall/purge behavior.
-4. Evaluate symlink, hard-link, bind-mount, and file-replacement behavior.
-5. Add optional binary identity hardening, such as inode or hash matching.
-6. Add desktop notification or `why last` UX.
-7. Add release documentation.
+2. Test `.deb` install/remove/purge lifecycle on Ubuntu 24.04.
+3. Evaluate symlink, hard-link, bind-mount, and file-replacement behavior.
+4. Add optional binary identity hardening, such as inode or hash matching.
+5. Add desktop notification or `why last` UX.
+6. Add release documentation.
 
 ## Current MVP Boundary
 
