@@ -7,13 +7,13 @@ groups = ["aws", "ssh"]
 [[protected_groups]]
 name = "aws"
 paths = [
-    "/home/alice/.aws"
+    "~/.aws"
 ]
 
 [[protected_groups]]
 name = "ssh"
 paths = [
-    "/home/alice/.ssh"
+    "~/.ssh"
 ]
 
 [[allow_rules]]

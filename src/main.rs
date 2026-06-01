@@ -148,6 +148,14 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+
+    Setup {
+        #[arg(long, default_value = "generated-config.toml")]
+        output: PathBuf,
+
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -323,6 +331,16 @@ fn main() -> anyhow::Result<()> {
             } else {
                 print_status(&parsed_config);
             }
+        }
+
+        Command::Setup { output, force } => {
+            let uid = current_uid();
+
+            write_starter_config(&output, uid, force).with_context(|| {
+                format!("failed to write starter config to {}", output.display())
+            })?;
+
+            println!("Wrote starter config to {}", output.display());
         }
     }
 
@@ -827,6 +845,56 @@ fn print_status_json(config: &config::Config) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn current_uid() -> u32 {
+    nix::unistd::geteuid().as_raw()
+}
+
+fn starter_config_toml(uid: u32) -> String {
+    format!(
+        r#"mode = "learn"
+
+[[users]]
+uid = {uid}
+groups = ["aws", "ssh"]
+
+[[protected_groups]]
+name = "aws"
+paths = ["~/.aws"]
+
+[[protected_groups]]
+name = "ssh"
+paths = ["~/.ssh"]
+
+[[allow_rules]]
+name = "Allow AWS CLI"
+uid = {uid}
+exe = "/usr/bin/aws"
+path_group = "aws"
+operation = "open_read"
+
+[[allow_rules]]
+name = "Allow SSH client"
+uid = {uid}
+exe = "/usr/bin/ssh"
+path_group = "ssh"
+operation = "open_read"
+"#
+    )
+}
+
+fn write_starter_config(path: &std::path::Path, uid: u32, force: bool) -> anyhow::Result<()> {
+    if path.exists() && !force {
+        anyhow::bail!(
+            "{} already exists; use --force to overwrite it",
+            path.display()
+        );
+    }
+
+    std::fs::write(path, starter_config_toml(uid))?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1303,5 +1371,68 @@ mod tests {
         assert!(json.contains("\"allow_rules\": 1"));
         assert!(json.contains("\"name\": \"aws\""));
         assert!(json.contains("\"name\": \"Allow AWS CLI\""));
+    }
+
+    #[test]
+    fn starter_config_contains_uid_and_default_groups() {
+        let toml = starter_config_toml(1000);
+
+        assert!(toml.contains("uid = 1000"));
+        assert!(toml.contains("groups = [\"aws\", \"ssh\"]"));
+        assert!(toml.contains("paths = [\"~/.aws\"]"));
+        assert!(toml.contains("paths = [\"~/.ssh\"]"));
+        assert!(toml.contains("operation = \"open_read\""));
+    }
+
+    #[test]
+    fn starter_config_parses_as_config() {
+        let toml = starter_config_toml(1000);
+
+        let config: config::Config = toml::from_str(&toml).expect("starter config should parse");
+
+        assert_eq!(config.mode, config::Mode::Learn);
+        assert_eq!(config.users.len(), 1);
+        assert_eq!(config.protected_groups.len(), 2);
+        assert_eq!(config.allow_rules.len(), 2);
+    }
+
+    #[test]
+    fn write_starter_config_writes_file() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let path = dir.path().join("config.toml");
+
+        write_starter_config(&path, 1000, false).expect("starter config should be written");
+
+        let contents = std::fs::read_to_string(&path).expect("config should be readable");
+
+        assert!(contents.contains("uid = 1000"));
+        assert!(contents.contains("mode = \"learn\""));
+    }
+
+    #[test]
+    fn write_starter_config_refuses_overwrite_without_force() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let path = dir.path().join("config.toml");
+
+        write_starter_config(&path, 1000, false).expect("first write should succeed");
+
+        let result = write_starter_config(&path, 1000, false);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn write_starter_config_overwrites_with_force() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let path = dir.path().join("config.toml");
+
+        std::fs::write(&path, "old contents").expect("old config should be written");
+
+        write_starter_config(&path, 1000, true).expect("force write should succeed");
+
+        let contents = std::fs::read_to_string(&path).expect("config should be readable");
+
+        assert!(contents.contains("mode = \"learn\""));
+        assert!(!contents.contains("old contents"));
     }
 }
