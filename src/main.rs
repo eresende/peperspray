@@ -67,6 +67,31 @@ struct StatusOutput<'a> {
     rules: &'a [config::AllowRule],
 }
 
+#[derive(Debug, Serialize)]
+struct SetupOutput {
+    output: PathBuf,
+    uid: u32,
+    written: bool,
+    detected_tools: Vec<SetupDetectedToolOutput>,
+    skipped_tools: Vec<SetupSkippedToolOutput>,
+}
+
+#[derive(Debug, Serialize)]
+struct SetupDetectedToolOutput {
+    command: String,
+    rule_name: String,
+    path_group: String,
+    exe: PathBuf,
+}
+
+#[derive(Debug, Serialize)]
+struct SetupSkippedToolOutput {
+    command: String,
+    rule_name: String,
+    path_group: String,
+    reason: String,
+}
+
 #[derive(Debug, Subcommand)]
 enum Command {
     PolicyValidate {
@@ -155,6 +180,9 @@ enum Command {
 
         #[arg(long)]
         force: bool,
+
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -333,19 +361,28 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        Command::Setup { output, force } => {
+        Command::Setup {
+            output,
+            force,
+            json,
+        } => {
             let uid = current_uid();
 
             let statuses = detect_setup_tool_statuses();
             let tools = detected_tools_from_statuses(&statuses);
 
-            print_setup_tool_detection(&statuses);
-
             write_starter_config_with_tools(&output, uid, &tools, force).with_context(|| {
                 format!("failed to write starter config to {}", output.display())
             })?;
 
-            println!("Wrote starter config to {}", output.display());
+            if json {
+                let setup_output = setup_output_from_statuses(output.clone(), uid, true, &statuses);
+
+                print_setup_output_json(&setup_output)?;
+            } else {
+                print_setup_tool_detection(&statuses);
+                println!("Wrote starter config to {}", output.display());
+            }
         }
     }
 
@@ -1050,6 +1087,55 @@ fn print_setup_tool_detection(statuses: &[SetupToolDetection]) {
     println!();
 }
 
+fn setup_output_from_statuses(
+    output: PathBuf,
+    uid: u32,
+    written: bool,
+    statuses: &[SetupToolDetection],
+) -> SetupOutput {
+    let detected_tools = statuses
+        .iter()
+        .filter_map(|status| {
+            let exe = status.exe.clone()?;
+
+            Some(SetupDetectedToolOutput {
+                command: status.tool.command.to_string(),
+                rule_name: status.tool.rule_name.to_string(),
+                path_group: status.tool.path_group.to_string(),
+                exe,
+            })
+        })
+        .collect();
+
+    let skipped_tools = statuses
+        .iter()
+        .filter(|status| status.exe.is_none())
+        .map(|status| SetupSkippedToolOutput {
+            command: status.tool.command.to_string(),
+            rule_name: status.tool.rule_name.to_string(),
+            path_group: status.tool.path_group.to_string(),
+            reason: "not found in PATH".to_string(),
+        })
+        .collect();
+
+    SetupOutput {
+        output,
+        uid,
+        written,
+        detected_tools,
+        skipped_tools,
+    }
+}
+
+fn setup_output_to_json(output: &SetupOutput) -> anyhow::Result<String> {
+    Ok(serde_json::to_string_pretty(output)?)
+}
+
+fn print_setup_output_json(output: &SetupOutput) -> anyhow::Result<()> {
+    println!("{}", setup_output_to_json(output)?);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1673,5 +1759,70 @@ mod tests {
         assert_eq!(tools[0].rule_name, "Allow AWS CLI");
         assert_eq!(tools[0].exe, PathBuf::from("/usr/bin/aws"));
         assert_eq!(tools[0].path_group, "aws");
+    }
+
+    #[test]
+    fn setup_output_from_statuses_splits_detected_and_skipped_tools() {
+        let statuses = [
+            SetupToolDetection {
+                tool: SetupTool {
+                    command: "ssh",
+                    rule_name: "Allow SSH client",
+                    path_group: "ssh",
+                },
+                exe: Some(PathBuf::from("/usr/bin/ssh")),
+            },
+            SetupToolDetection {
+                tool: SetupTool {
+                    command: "gcloud",
+                    rule_name: "Allow Google Cloud CLI",
+                    path_group: "gcloud",
+                },
+                exe: None,
+            },
+        ];
+
+        let output = setup_output_from_statuses(
+            PathBuf::from("./generated-config.toml"),
+            1000,
+            true,
+            &statuses,
+        );
+
+        assert_eq!(output.uid, 1000);
+        assert!(output.written);
+        assert_eq!(output.detected_tools.len(), 1);
+        assert_eq!(output.skipped_tools.len(), 1);
+        assert_eq!(output.detected_tools[0].command, "ssh");
+        assert_eq!(output.detected_tools[0].exe, PathBuf::from("/usr/bin/ssh"));
+        assert_eq!(output.skipped_tools[0].command, "gcloud");
+        assert_eq!(output.skipped_tools[0].reason, "not found in PATH");
+    }
+
+    #[test]
+    fn setup_output_to_json_outputs_expected_shape() {
+        let statuses = [SetupToolDetection {
+            tool: SetupTool {
+                command: "ssh",
+                rule_name: "Allow SSH client",
+                path_group: "ssh",
+            },
+            exe: Some(PathBuf::from("/usr/bin/ssh")),
+        }];
+
+        let output = setup_output_from_statuses(
+            PathBuf::from("./generated-config.toml"),
+            1000,
+            true,
+            &statuses,
+        );
+
+        let json = setup_output_to_json(&output).expect("setup output should serialize");
+
+        assert!(json.contains("\"output\": \"./generated-config.toml\""));
+        assert!(json.contains("\"uid\": 1000"));
+        assert!(json.contains("\"written\": true"));
+        assert!(json.contains("\"detected_tools\""));
+        assert!(json.contains("\"command\": \"ssh\""));
     }
 }
