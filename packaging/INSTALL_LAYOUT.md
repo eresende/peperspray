@@ -52,3 +52,6 @@ sudo apt purge peperspray
 The maintainer scripts stop and disable `pepersprayd.service` during removal and
 remove `/etc/peperspray/config.toml` plus `/var/log/peperspray/events.jsonl`
 during purge.
+
+For a repeatable VM smoke test of this lifecycle, see
+`docs/QEMU_PACKAGE_TESTING.md` and `packaging/qemu-test-deb.sh`.

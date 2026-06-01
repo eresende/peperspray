@@ -334,6 +334,14 @@ sudo apt remove peperspray
 sudo apt purge peperspray
 ```
 
+Validate the package lifecycle in a QEMU/KVM Ubuntu 24.04 VM:
+
+```sh
+packaging/qemu-test-deb.sh --image ./noble-server-cloudimg-amd64.img
+```
+
+See `docs/QEMU_PACKAGE_TESTING.md` for prerequisites and exact checks.
+
 ### Show policy status
 
 ```sh
@@ -522,8 +530,10 @@ The current code is organized around the planned backend split:
 - `src/bin/pepersprayd.rs`: daemon entrypoint
 - `packaging/INSTALL_LAYOUT.md`: intended installed filesystem layout
 - `packaging/build-deb.sh`: local `.deb` package builder
+- `packaging/qemu-test-deb.sh`: QEMU/KVM package lifecycle smoke test
 - `packaging/deb/`: Debian metadata and maintainer scripts
 - `packaging/systemd/pepersprayd.service`: starter systemd unit
+- `docs/QEMU_PACKAGE_TESTING.md`: QEMU/KVM package validation guide
 - `docs/FAILURE_BEHAVIOR.md`: intended failure behavior for MVP hardening
 
 `src/main.rs` is intentionally kept as a thin dispatcher so the portable policy,
@@ -534,7 +544,7 @@ logging, setup, status, and review behavior remains easier to test in isolation.
 Suggested next milestones:
 
 1. Run and harden the privileged fanotify integration tests on Ubuntu 24.04.
-2. Test `.deb` install/remove/purge lifecycle on Ubuntu 24.04.
+2. Run and harden the QEMU package lifecycle test on Ubuntu 24.04.
 3. Evaluate symlink, hard-link, bind-mount, and file-replacement behavior.
 4. Add optional binary identity hardening, such as inode or hash matching.
 5. Add desktop notification or `why last` UX.
