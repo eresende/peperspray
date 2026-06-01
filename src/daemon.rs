@@ -4,6 +4,7 @@ use crate::fanotify::FanotifyPermissionEvent;
 use crate::logging::{self, DaemonLog};
 use crate::policy;
 use anyhow::Context;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
@@ -82,7 +83,11 @@ pub fn run(options: DaemonOptions) -> anyhow::Result<()> {
     }
 
     if let Some(path) = &options.fanotify_path {
-        run_fanotify_loop(path, &loaded.config, &options.log_file)?;
+        run_fanotify_loop(
+            std::slice::from_ref(path),
+            &loaded.config,
+            &options.log_file,
+        )?;
         return Ok(());
     }
 
@@ -96,7 +101,22 @@ pub fn run(options: DaemonOptions) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    println!("pepersprayd skeleton running without enforcement.");
+    let fanotify_paths = configured_fanotify_paths(&loaded.config);
+
+    if !fanotify_paths.is_empty() {
+        run_fanotify_loop(&fanotify_paths, &loaded.config, &options.log_file)?;
+        return Ok(());
+    }
+
+    append_lifecycle_log(
+        &options.log_file,
+        DaemonLog::new(
+            "warn",
+            "no existing absolute protected paths available for fanotify marks",
+        ),
+    )?;
+
+    println!("pepersprayd running without fanotify marks.");
     println!("Config: {}", options.config_path.display());
     println!("Log file: {}", options.log_file.display());
 
@@ -105,23 +125,33 @@ pub fn run(options: DaemonOptions) -> anyhow::Result<()> {
     }
 }
 
-fn run_fanotify_loop(path: &Path, config: &config::Config, log_file: &Path) -> anyhow::Result<()> {
-    let fanotify = fanotify::probe_path(path)
-        .with_context(|| format!("failed to initialize fanotify loop for {}", path.display()))?;
+fn run_fanotify_loop(
+    paths: &[PathBuf],
+    config: &config::Config,
+    log_file: &Path,
+) -> anyhow::Result<()> {
+    let fanotify = fanotify::FanotifyProbe::new()
+        .context("failed to initialize fanotify permission listener")?;
+
+    for path in paths {
+        fanotify
+            .mark_path(path)
+            .with_context(|| format!("failed to mark {} for fanotify", path.display()))?;
+    }
 
     append_lifecycle_log(
         log_file,
         DaemonLog::new(
             "info",
             format!(
-                "fanotify loop started fd {} for {}",
+                "fanotify loop started fd {} for {} protected paths",
                 fanotify.raw_fd(),
-                path.display()
+                paths.len()
             ),
         ),
     )?;
 
-    println!("fanotify loop started for {}", path.display());
+    println!("fanotify loop started for {} protected paths", paths.len());
 
     loop {
         let events = fanotify.read_permission_events()?;
@@ -150,6 +180,18 @@ fn run_fanotify_loop(path: &Path, config: &config::Config, log_file: &Path) -> a
             let _ = fanotify::close_permission_event_fd(&event);
         }
     }
+}
+
+fn configured_fanotify_paths(config: &config::Config) -> Vec<PathBuf> {
+    config
+        .protected_groups
+        .iter()
+        .flat_map(|group| group.paths.iter())
+        .filter(|path| path.is_absolute() && path.exists())
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 pub fn handle_permission_event(
@@ -253,5 +295,31 @@ groups = ["missing"]
 
         assert_eq!(access_event.target_path, target);
         assert!(matches!(decision, policy::Decision::Deny { .. }));
+    }
+
+    #[test]
+    fn configured_fanotify_paths_returns_existing_absolute_paths() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let protected = dir.path().join(".aws");
+        std::fs::create_dir(&protected).expect("protected dir should be created");
+
+        let config = config::Config {
+            mode: config::Mode::Learn,
+            users: Vec::new(),
+            protected_groups: vec![config::ProtectedPathGroup {
+                name: "aws".to_string(),
+                paths: vec![
+                    protected.clone(),
+                    protected.clone(),
+                    dir.path().join("missing"),
+                    PathBuf::from(".env"),
+                ],
+            }],
+            allow_rules: Vec::new(),
+        };
+
+        let paths = configured_fanotify_paths(&config);
+
+        assert_eq!(paths, vec![protected]);
     }
 }

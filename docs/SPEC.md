@@ -44,12 +44,14 @@ permission-event probe, run a fanotify loop for one marked path, convert
 `FAN_OPEN_PERM` metadata into the portable `AccessEvent` model, and map policy
 decisions to `FAN_ALLOW` or `FAN_DENY` responses.
 
-The remaining enforcement proof is to run and harden the ignored privileged
-Linux integration tests on Ubuntu 24.04. Those tests start the daemon against
+Privileged Linux integration tests on Ubuntu 24.04 start the daemon against
 temporary protected files and prove allowed/denied reads end to end.
 
 Failure behavior is tracked separately in
 [FAILURE_BEHAVIOR.md](FAILURE_BEHAVIOR.md).
+
+Path behavior and known identity limitations are tracked in
+[PATH_SEMANTICS.md](PATH_SEMANTICS.md).
 
 ## Test Plan
 
@@ -90,9 +92,8 @@ The first enforcement milestone is intentionally narrow:
 - Policy identity is based on executable path, UID, protected group, operation,
   and optional parent executable. Stronger binary identity checks such as inode,
   signature, or content hash matching are future hardening.
-- Path behavior around symlinks, hard links, bind mounts, file replacement, and
-  namespace boundaries must be evaluated before relying on the tool for
-  high-assurance environments.
+- Path behavior around hard links, bind mounts, and namespace boundaries needs
+  hardening before relying on the tool for high-assurance environments.
 - Learn mode is observational. It records accesses that would be denied but does
   not prevent credential reads.
 - If the daemon is not running, the current prototype cannot protect the host.

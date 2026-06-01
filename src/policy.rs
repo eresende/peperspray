@@ -353,4 +353,64 @@ mod tests {
 
         assert!(matches!(decision, Decision::Allow { .. }));
     }
+
+    #[test]
+    fn protects_replaced_file_inside_protected_directory() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let protected_dir = dir.path().join("protected");
+        let target = protected_dir.join("secret");
+
+        std::fs::create_dir(&protected_dir).expect("protected dir should be created");
+        std::fs::write(&target, "old").expect("target should be written");
+        std::fs::remove_file(&target).expect("target should be removed");
+        std::fs::write(&target, "new").expect("target should be replaced");
+
+        let config = Config {
+            mode: Mode::Enforce,
+            users: vec![ProtectedUser {
+                uid: 1000,
+                groups: vec!["test".to_string()],
+            }],
+            protected_groups: vec![ProtectedPathGroup {
+                name: "test".to_string(),
+                paths: vec![protected_dir],
+            }],
+            allow_rules: Vec::new(),
+        };
+        let event = access_event("/usr/bin/python3", target.to_str().unwrap());
+
+        let decision = decide(&config, &event);
+
+        assert!(matches!(decision, Decision::Deny { .. }));
+    }
+
+    #[test]
+    fn hard_link_outside_protected_directory_is_not_detected_by_path_policy() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let protected_dir = dir.path().join("protected");
+        let protected_file = protected_dir.join("secret");
+        let hard_link = dir.path().join("outside-secret");
+
+        std::fs::create_dir(&protected_dir).expect("protected dir should be created");
+        std::fs::write(&protected_file, "secret").expect("protected file should be written");
+        std::fs::hard_link(&protected_file, &hard_link).expect("hard link should be created");
+
+        let config = Config {
+            mode: Mode::Enforce,
+            users: vec![ProtectedUser {
+                uid: 1000,
+                groups: vec!["test".to_string()],
+            }],
+            protected_groups: vec![ProtectedPathGroup {
+                name: "test".to_string(),
+                paths: vec![protected_dir],
+            }],
+            allow_rules: Vec::new(),
+        };
+        let event = access_event("/usr/bin/python3", hard_link.to_str().unwrap());
+
+        let decision = decide(&config, &event);
+
+        assert!(matches!(decision, Decision::Allow { .. }));
+    }
 }

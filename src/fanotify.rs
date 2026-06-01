@@ -16,8 +16,34 @@ pub struct FanotifyProbe {
 }
 
 impl FanotifyProbe {
+    pub fn new() -> anyhow::Result<Self> {
+        Ok(Self {
+            fd: fanotify_init()?,
+        })
+    }
+
     pub fn raw_fd(&self) -> i32 {
         self.fd.as_raw_fd()
+    }
+
+    pub fn mark_path(&self, path: &Path) -> anyhow::Result<()> {
+        let path = std::ffi::CString::new(path.as_os_str().as_bytes())?;
+
+        let result = unsafe {
+            libc::fanotify_mark(
+                self.raw_fd(),
+                libc::FAN_MARK_ADD,
+                FANOTIFY_PERMISSION_MASK,
+                libc::AT_FDCWD,
+                path.as_ptr(),
+            )
+        };
+
+        if result < 0 {
+            return Err(Into::into(std::io::Error::last_os_error()));
+        }
+
+        Ok(())
     }
 
     pub fn read_permission_events(&self) -> anyhow::Result<Vec<FanotifyPermissionEvent>> {
@@ -49,24 +75,10 @@ pub struct FanotifyPermissionEvent {
 }
 
 pub fn probe_path(path: &Path) -> anyhow::Result<FanotifyProbe> {
-    let fanotify_fd = fanotify_init()?;
-    let path = std::ffi::CString::new(path.as_os_str().as_bytes())?;
+    let probe = FanotifyProbe::new()?;
+    probe.mark_path(path)?;
 
-    let result = unsafe {
-        libc::fanotify_mark(
-            fanotify_fd.as_raw_fd(),
-            libc::FAN_MARK_ADD,
-            FANOTIFY_PERMISSION_MASK,
-            libc::AT_FDCWD,
-            path.as_ptr(),
-        )
-    };
-
-    if result < 0 {
-        return Err(Into::into(std::io::Error::last_os_error()));
-    }
-
-    Ok(FanotifyProbe { fd: fanotify_fd })
+    Ok(probe)
 }
 
 pub fn permission_events_from_buffer(buffer: &[u8]) -> Vec<FanotifyPermissionEvent> {

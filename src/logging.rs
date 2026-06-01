@@ -151,12 +151,81 @@ pub fn read_jsonl_logs(path: &Path) -> anyhow::Result<Vec<OwnedDecisionLog>> {
             continue;
         }
 
-        let log: OwnedDecisionLog = serde_json::from_str(line).map_err(|err| {
+        let Some(log) = parse_decision_jsonl_line(line).map_err(|err| {
             anyhow::anyhow!("failed to parse log line {}: {}", line_number + 1, err)
-        })?;
+        })?
+        else {
+            continue;
+        };
 
         logs.push(log);
     }
 
     Ok(logs)
+}
+
+pub fn parse_decision_jsonl_line(line: &str) -> anyhow::Result<Option<OwnedDecisionLog>> {
+    let value: serde_json::Value = serde_json::from_str(line)?;
+
+    if is_daemon_lifecycle_log(&value) {
+        return Ok(None);
+    }
+
+    Ok(Some(serde_json::from_value(value)?))
+}
+
+fn is_daemon_lifecycle_log(value: &serde_json::Value) -> bool {
+    value.get("component").and_then(serde_json::Value::as_str) == Some("pepersprayd")
+        && value.get("level").is_some()
+        && value.get("message").is_some()
+        && value.get("uid").is_none()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DECISION_LOG: &str = r#"{"event_id":"00000000-0000-0000-0000-000000000001","timestamp":"2026-01-01T00:00:00Z","uid":1000,"exe":"/usr/bin/python3","target_path":"/home/alice/.aws/credentials","operation":"open_read","decision":"allow","reason":"learn","matched_path_group":"aws","would_deny":true}"#;
+    const DAEMON_LOG: &str = r#"{"event_id":"00000000-0000-0000-0000-000000000002","timestamp":"2026-01-01T00:00:01Z","component":"pepersprayd","level":"info","message":"daemon config loaded","config_path":"/etc/peperspray/config.toml","protected_users":1,"protected_groups":1,"allow_rules":0}"#;
+
+    #[test]
+    fn read_jsonl_logs_skips_daemon_lifecycle_records() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let path = dir.path().join("events.jsonl");
+        std::fs::write(&path, format!("{DAEMON_LOG}\n{DECISION_LOG}\n"))
+            .expect("log should be written");
+
+        let logs = read_jsonl_logs(&path).expect("logs should be readable");
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].uid, 1000);
+        assert_eq!(logs[0].exe, PathBuf::from("/usr/bin/python3"));
+    }
+
+    #[test]
+    fn read_jsonl_logs_rejects_malformed_json() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let path = dir.path().join("events.jsonl");
+        std::fs::write(&path, "{").expect("log should be written");
+
+        let err = read_jsonl_logs(&path).expect_err("malformed json should fail");
+
+        assert!(err.to_string().contains("failed to parse log line 1"));
+    }
+
+    #[test]
+    fn read_jsonl_logs_rejects_malformed_decision_records() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let path = dir.path().join("events.jsonl");
+        std::fs::write(
+            &path,
+            r#"{"event_id":"00000000-0000-0000-0000-000000000001","timestamp":"2026-01-01T00:00:00Z","exe":"/usr/bin/python3","target_path":"/tmp/file","operation":"open_read","decision":"allow","reason":"learn"}"#,
+        )
+        .expect("log should be written");
+
+        let err = read_jsonl_logs(&path).expect_err("malformed decision should fail");
+
+        assert!(err.to_string().contains("failed to parse log line 1"));
+        assert!(err.to_string().contains("missing field `uid`"));
+    }
 }

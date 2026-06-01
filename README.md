@@ -90,15 +90,18 @@ Implemented policy and CLI capabilities:
 - Minimal `pepersprayd` skeleton with config validation and lifecycle JSONL logs
 - Experimental `fanotify` permission-event loop, event conversion, decision
   logging, and FAN_ALLOW/FAN_DENY responses
+- Privileged fanotify integration tests proving learn/enforce read behavior on
+  Ubuntu 24.04
 - Service management wrappers around `systemctl`
 - Installed-layout scaffolding under `packaging/`
 - Local `.deb` package build script and Debian maintainer scripts
 - Remove/purge behavior for the installed service, config, and runtime log
+- QEMU/KVM package lifecycle test for install, service startup, remove, and
+  purge on Ubuntu 24.04
+- Documented path semantics and known hard-link/bind-mount limitations
 
 Not implemented yet:
 
-- privileged Linux integration tests proving real read blocking
-- package lifecycle testing on Ubuntu 24.04
 - advanced tamper resistance
 
 ## Requirements
@@ -266,7 +269,7 @@ the config.
 
 ### Validate daemon startup inputs
 
-The daemon binary currently provides a non-enforcing skeleton:
+Validate the daemon config without starting the fanotify loop:
 
 ```sh
 cargo run --bin pepersprayd -- \
@@ -276,8 +279,10 @@ cargo run --bin pepersprayd -- \
 ```
 
 Installed-mode defaults are `/etc/peperspray/config.toml` and
-`/var/log/peperspray/events.jsonl`. The repository also includes a starter
-systemd unit at `packaging/systemd/pepersprayd.service`.
+`/var/log/peperspray/events.jsonl`. The systemd service starts the daemon as
+root and marks existing absolute protected paths from the config. Protected
+paths such as `~/.aws` are expanded against the configured protected user's home
+directory, not root's home directory.
 
 The experimental fanotify probe initializes a permission-event mark without
 starting the full loop:
@@ -290,7 +295,7 @@ cargo run --bin pepersprayd -- \
   --fanotify-probe /path/to/protect
 ```
 
-The experimental fanotify loop reads `FAN_OPEN_PERM` events, converts each event
+The fanotify loop reads `FAN_OPEN_PERM` events, converts each event
 into an `AccessEvent`, evaluates policy, appends a JSONL decision log, and writes
 `FAN_ALLOW` or `FAN_DENY` back to the kernel:
 
@@ -301,8 +306,9 @@ sudo target/debug/pepersprayd \
   --fanotify-path /path/to/protect
 ```
 
-This path still needs privileged Linux integration tests before it should be
-treated as host protection.
+When `--fanotify-path` is omitted, the daemon uses existing absolute paths from
+`protected_groups`. Missing paths and relative filename presets such as `.env`
+are skipped by the fanotify marker.
 
 To run the ignored privileged fanotify tests on a Linux host:
 
@@ -329,7 +335,8 @@ The service is intended to run as root. Installed layout notes live in
 
 ```sh
 packaging/build-deb.sh
-sudo apt install ./target/debian/peperspray_0.1.0_amd64.deb
+cp ./target/debian/peperspray_0.1.0_amd64.deb /tmp/
+sudo apt install /tmp/peperspray_0.1.0_amd64.deb
 sudo apt remove peperspray
 sudo apt purge peperspray
 ```
@@ -462,7 +469,11 @@ based on learn-mode `would_deny` events.
 
 ## Log Format
 
-Logs are newline-delimited JSON. Each event can include:
+Logs are newline-delimited JSON. The daemon writes access decision records and
+daemon lifecycle records to the same file. Commands such as `logs`, `why`, and
+`policy-review` read decision records and skip daemon lifecycle records.
+
+Each decision event can include:
 
 - `event_id`
 - `timestamp`
@@ -535,6 +546,7 @@ The current code is organized around the planned backend split:
 - `packaging/systemd/pepersprayd.service`: starter systemd unit
 - `docs/QEMU_PACKAGE_TESTING.md`: QEMU/KVM package validation guide
 - `docs/FAILURE_BEHAVIOR.md`: intended failure behavior for MVP hardening
+- `docs/PATH_SEMANTICS.md`: current path behavior and hardening gaps
 
 `src/main.rs` is intentionally kept as a thin dispatcher so the portable policy,
 logging, setup, status, and review behavior remains easier to test in isolation.
@@ -543,18 +555,16 @@ logging, setup, status, and review behavior remains easier to test in isolation.
 
 Suggested next milestones:
 
-1. Run and harden the privileged fanotify integration tests on Ubuntu 24.04.
-2. Run and harden the QEMU package lifecycle test on Ubuntu 24.04.
-3. Evaluate symlink, hard-link, bind-mount, and file-replacement behavior.
-4. Add optional binary identity hardening, such as inode or hash matching.
-5. Add desktop notification or `why last` UX.
-6. Add release documentation.
+1. Add optional binary identity hardening, such as inode or hash matching.
+2. Add bind-mount and namespace integration tests.
+3. Add desktop notification or `why last` UX.
+4. Add release documentation.
 
 ## Current MVP Boundary
 
 The current prototype is useful for developing and testing the policy model and
-has an experimental Linux `fanotify` loop, but it is not yet validated as host
-protection.
+has a Linux `fanotify` loop validated by privileged Ubuntu 24.04 integration
+tests, but it still has documented path-identity limitations.
 
 It can answer:
 
@@ -568,8 +578,9 @@ The experimental daemon path is intended to enforce:
 Block this real process before it reads the file.
 ```
 
-That boundary still needs privileged Linux integration tests, installed service
-management, and packaging before it should be treated as reliable protection.
+That boundary still needs path-identity hardening, especially around hard links,
+bind mounts, and mount namespaces, before it should be treated as reliable
+protection.
 
 ## License
 

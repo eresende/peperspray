@@ -100,7 +100,8 @@ fn policy_review_min_events_filters_suggestions() {
     let log_file = dir.path().join("events.jsonl");
     std::fs::write(
         &log_file,
-        r#"{"event_id":"00000000-0000-0000-0000-000000000001","timestamp":"2026-01-01T00:00:00Z","uid":1000,"exe":"/usr/bin/python3","target_path":"/home/alice/.aws/credentials","operation":"open_read","decision":"allow","reason":"learn","matched_path_group":"aws","would_deny":true}
+        r#"{"event_id":"00000000-0000-0000-0000-000000000099","timestamp":"2026-01-01T00:00:00Z","component":"pepersprayd","level":"info","message":"daemon config loaded","config_path":"/etc/peperspray/config.toml","protected_users":1,"protected_groups":1,"allow_rules":0}
+{"event_id":"00000000-0000-0000-0000-000000000001","timestamp":"2026-01-01T00:00:00Z","uid":1000,"exe":"/usr/bin/python3","target_path":"/home/alice/.aws/credentials","operation":"open_read","decision":"allow","reason":"learn","matched_path_group":"aws","would_deny":true}
 {"event_id":"00000000-0000-0000-0000-000000000002","timestamp":"2026-01-01T00:00:01Z","uid":1000,"exe":"/usr/bin/python3","target_path":"/home/alice/.aws/config","operation":"open_read","decision":"allow","reason":"learn","matched_path_group":"aws","would_deny":true}
 {"event_id":"00000000-0000-0000-0000-000000000003","timestamp":"2026-01-01T00:00:02Z","uid":1000,"exe":"/usr/bin/git","target_path":"/home/alice/.ssh/id_ed25519","operation":"open_read","decision":"allow","reason":"learn","matched_path_group":"ssh","would_deny":true}
 "#,

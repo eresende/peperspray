@@ -1,6 +1,8 @@
 use crate::event::Operation;
 use crate::paths;
+use nix::unistd::{Uid, User};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -210,10 +212,14 @@ fn validate_duplicate_allow_rule_behavior(config: &Config, errors: &mut Vec<Stri
 }
 
 pub fn normalize_config_paths(config: &mut Config) {
+    let user_homes = user_homes_by_group(config);
+
     for group in &mut config.protected_groups {
-        for path in &mut group.paths {
-            *path = paths::expand_and_normalize_path(path);
-        }
+        group.paths = group
+            .paths
+            .iter()
+            .flat_map(|path| normalize_protected_path(path, &group.name, &user_homes))
+            .collect();
     }
 
     for rule in &mut config.allow_rules {
@@ -223,6 +229,57 @@ pub fn normalize_config_paths(config: &mut Config) {
             rule.parent_exe = Some(paths::normalize_path(parent_exe));
         }
     }
+}
+
+fn normalize_protected_path(
+    path: &Path,
+    group_name: &str,
+    user_homes: &HashMap<String, Vec<PathBuf>>,
+) -> Vec<PathBuf> {
+    if !paths::is_tilde_path(path) {
+        return vec![paths::expand_and_normalize_path(path)];
+    }
+
+    let Some(homes) = user_homes.get(group_name) else {
+        return vec![paths::expand_and_normalize_path(path)];
+    };
+
+    let expanded = homes
+        .iter()
+        .map(|home| paths::normalize_path(&paths::expand_tilde_with_home(path, home)))
+        .collect::<Vec<_>>();
+
+    if expanded.is_empty() {
+        vec![paths::expand_and_normalize_path(path)]
+    } else {
+        expanded
+    }
+}
+
+fn user_homes_by_group(config: &Config) -> HashMap<String, Vec<PathBuf>> {
+    let mut homes = HashMap::<String, Vec<PathBuf>>::new();
+
+    for user in &config.users {
+        let Some(home) = home_dir_for_uid(user.uid) else {
+            continue;
+        };
+
+        for group_name in &user.groups {
+            homes
+                .entry(group_name.clone())
+                .or_default()
+                .push(home.clone());
+        }
+    }
+
+    homes
+}
+
+fn home_dir_for_uid(uid: u32) -> Option<PathBuf> {
+    User::from_uid(Uid::from_raw(uid))
+        .ok()
+        .flatten()
+        .map(|user| user.dir)
 }
 
 #[cfg(test)]
@@ -389,20 +446,11 @@ operation = "open_read"
 
     #[test]
     fn normalize_config_expands_tilde_in_protected_paths() {
-        let Some(home) = std::env::var_os("HOME") else {
-            return;
-        };
+        let user_homes = HashMap::from([("aws".to_string(), vec![PathBuf::from("/home/alice")])]);
 
-        let mut config = sample_config();
+        let paths = normalize_protected_path(Path::new("~/.aws"), "aws", &user_homes);
 
-        config.protected_groups[0].paths = vec![PathBuf::from("~/.aws")];
-
-        normalize_config_paths(&mut config);
-
-        assert_eq!(
-            config.protected_groups[0].paths[0],
-            PathBuf::from(home).join(".aws")
-        );
+        assert_eq!(paths, vec![PathBuf::from("/home/alice/.aws")]);
     }
 
     #[test]

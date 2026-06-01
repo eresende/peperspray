@@ -5,21 +5,31 @@ pub fn normalize_path(path: &Path) -> PathBuf {
 }
 
 pub fn expand_tilde(path: &Path) -> PathBuf {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return path.to_path_buf();
+    };
+
+    expand_tilde_with_home(path, &home)
+}
+
+pub fn expand_tilde_with_home(path: &Path, home: &Path) -> PathBuf {
     let path_str = path.to_string_lossy();
 
-    if path_str == "~"
-        && let Some(home) = std::env::var_os("HOME")
-    {
-        return PathBuf::from(home);
+    if path_str == "~" {
+        return home.to_path_buf();
     }
 
-    if let Some(rest) = path_str.strip_prefix("~/")
-        && let Some(home) = std::env::var_os("HOME")
-    {
-        return PathBuf::from(home).join(rest);
+    if let Some(rest) = path_str.strip_prefix("~/") {
+        return home.join(rest);
     }
 
     path.to_path_buf()
+}
+
+pub fn is_tilde_path(path: &Path) -> bool {
+    let path_str = path.to_string_lossy();
+
+    path_str == "~" || path_str.starts_with("~/")
 }
 
 pub fn expand_and_normalize_path(path: &Path) -> PathBuf {
@@ -78,5 +88,19 @@ mod tests {
         let expanded = expand_tilde(&path);
 
         assert_eq!(expanded, path);
+    }
+
+    #[test]
+    fn normalize_symlink_uses_target_path() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let target = dir.path().join("target");
+        let link = dir.path().join("link");
+
+        std::fs::write(&target, "secret").expect("target should be written");
+        std::os::unix::fs::symlink(&target, &link).expect("symlink should be created");
+
+        let normalized = normalize_path(&link);
+
+        assert_eq!(normalized, target);
     }
 }

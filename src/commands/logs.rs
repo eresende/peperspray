@@ -102,7 +102,9 @@ pub fn follow_jsonl_log(
             continue;
         }
 
-        let log: logging::OwnedDecisionLog = serde_json::from_str(line.trim())?;
+        let Some(log) = logging::parse_decision_jsonl_line(line.trim())? else {
+            continue;
+        };
 
         if !matches_decision(&log, decision) {
             continue;
