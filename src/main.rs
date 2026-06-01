@@ -1,20 +1,9 @@
-mod cli;
-mod commands;
-mod config;
-mod event;
-mod logging;
-mod paths;
-mod policy;
-mod process;
-mod review;
-mod setup;
-mod status;
-
 use anyhow::Context;
 use clap::Parser;
-use cli::{Cli, Command};
-use event::{AccessEvent, Operation};
-use policy::Decision;
+use peperspray::cli::{Cli, Command};
+use peperspray::event::{AccessEvent, Operation};
+use peperspray::policy::Decision;
+use peperspray::{commands, config, logging, paths, policy, process, review, setup, status};
 use std::path::PathBuf;
 
 fn main() -> anyhow::Result<()> {

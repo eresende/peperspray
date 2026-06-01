@@ -82,15 +82,19 @@ Implemented policy and CLI capabilities:
 - Safe mode changes with config backups
 - Expanded protected presets for npm, Ansible Vault, Git credentials, and
   project dotenv files
+- Split CLI/library layout with `peperspray` and `pepersprayd` binaries
+- Minimal `pepersprayd` skeleton with config validation and lifecycle JSONL logs
+- Initial `fanotify` permission-event conversion and FAN_ALLOW/FAN_DENY response
+  helpers
 
 Not implemented yet:
 
-- root daemon
-- Linux `fanotify` permission-event integration
+- full root daemon enforcement loop
+- privileged Linux `fanotify` read-loop integration
 - real file-read blocking
 - installation layout under `/etc/peperspray/` and `/var/log/peperspray/`
 - `.deb` packaging
-- `systemd` service management
+- installed `systemd` service management
 - advanced tamper resistance
 
 ## Requirements
@@ -255,6 +259,32 @@ cargo run -- enforce --config ./generated-config.toml
 
 Mode changes validate the config first and write a `.bak` copy before replacing
 the config.
+
+### Validate daemon startup inputs
+
+The daemon binary currently provides a non-enforcing skeleton:
+
+```sh
+cargo run --bin pepersprayd -- \
+  --config ./generated-config.toml \
+  --log-file ./events.jsonl \
+  --check
+```
+
+Installed-mode defaults are `/etc/peperspray/config.toml` and
+`/var/log/peperspray/events.jsonl`. The repository also includes a starter
+systemd unit at `packaging/systemd/pepersprayd.service`.
+
+The experimental fanotify probe initializes a permission-event mark but does not
+start the full enforcement loop yet:
+
+```sh
+cargo run --bin pepersprayd -- \
+  --config ./generated-config.toml \
+  --log-file ./events.jsonl \
+  --check \
+  --fanotify-probe /path/to/protect
+```
 
 ### Show policy status
 
@@ -427,7 +457,9 @@ Example shape:
 The current code is organized around the planned backend split:
 
 - `src/config.rs`: config types, loading, normalization, and validation
+- `src/daemon.rs`: daemon config validation, lifecycle logging, and event handler
 - `src/event.rs`: access-event model and operation type
+- `src/fanotify.rs`: Linux `fanotify` proof-of-concept helpers
 - `src/policy.rs`: policy decision engine
 - `src/logging.rs`: decision log serialization and JSONL helpers
 - `src/paths.rs`: path normalization and `~` expansion helpers
@@ -438,6 +470,9 @@ The current code is organized around the planned backend split:
 - `src/status.rs`: status output formatting
 - `src/review.rs`: learned-access grouping and suggested allow-rule generation
 - `src/commands/logs.rs`: log filtering, lookup, and rendering
+- `src/bin/pepersprayd.rs`: daemon entrypoint
+- `packaging/systemd/pepersprayd.service`: starter systemd unit
+- `docs/FAILURE_BEHAVIOR.md`: intended failure behavior for MVP hardening
 
 `src/main.rs` is intentionally kept as a thin dispatcher so the portable policy,
 logging, setup, status, and review behavior remains easier to test in isolation.
@@ -446,31 +481,17 @@ logging, setup, status, and review behavior remains easier to test in isolation.
 
 Suggested next milestones:
 
-1. Split binaries into:
-   - `peperspray`
-   - `pepersprayd`
-2. Add a minimal daemon skeleton without enforcement.
-3. Add daemon config loading and validation.
-4. Add daemon JSONL logging.
-5. Add a minimal Linux `fanotify` proof of concept.
-6. Convert `fanotify` permission events into `AccessEvent`.
-7. Add allow/deny responses for `FAN_OPEN_PERM`.
-8. Add integration tests for protected temporary files on Linux.
-9. Add systemd unit file.
-10. Add `/etc/peperspray/config.toml` and `/var/log/peperspray/events.jsonl`
+1. Add a privileged daemon fanotify event loop.
+2. Add integration tests for protected temporary files on Linux.
+3. Add installed service management commands.
+4. Add `/etc/peperspray/config.toml` and `/var/log/peperspray/events.jsonl`
     defaults for installed mode.
-11. Add `.deb` packaging.
-12. Add uninstall/purge behavior.
-13. Document failure behavior:
-   - daemon crash
-   - config parse failure
-   - log write failure
-   - process metadata lookup failure
-14. Evaluate symlink, hard-link, bind-mount, and file-replacement behavior.
-15. Add optional binary identity hardening, such as inode or hash matching.
-16. Add desktop notification or `why last` UX.
-17. Add CI for `cargo fmt`, `cargo test`, and `cargo clippy`.
-18. Add release documentation.
+5. Add `.deb` packaging.
+6. Add uninstall/purge behavior.
+7. Evaluate symlink, hard-link, bind-mount, and file-replacement behavior.
+8. Add optional binary identity hardening, such as inode or hash matching.
+9. Add desktop notification or `why last` UX.
+10. Add release documentation.
 
 ## Current MVP Boundary
 

@@ -34,6 +34,22 @@ Default posture is zero-trust: protected credential reads are denied in enforce 
 - `peperspray test-access <path>`: verify whether a read would be allowed or denied.
 - `peperspray policy-review`: review learned accesses and promote selected entries to allow rules.
 - `peperspray policy-validate`: validate config syntax and rule consistency.
+- `pepersprayd --check`: validate daemon config and emit a lifecycle log without starting enforcement.
+
+## Implementation Staging
+
+The current daemon implementation is a non-enforcing skeleton. It can load and
+validate daemon configuration, write lifecycle JSONL logs, initialize a
+fanotify permission-event probe, convert `FAN_OPEN_PERM` metadata into the
+portable `AccessEvent` model, and map policy decisions to `FAN_ALLOW` or
+`FAN_DENY` responses.
+
+The remaining enforcement step is a privileged read loop that receives
+fanotify events, calls the existing permission-event handler, and proves
+allowed/denied reads with Linux integration tests.
+
+Failure behavior is tracked separately in
+[FAILURE_BEHAVIOR.md](FAILURE_BEHAVIOR.md).
 
 ## Test Plan
 

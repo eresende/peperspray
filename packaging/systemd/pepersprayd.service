@@ -1,0 +1,13 @@
+[Unit]
+Description=peperspray credential access guard daemon
+Documentation=README.md
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/pepersprayd --config /etc/peperspray/config.toml --log-file /var/log/peperspray/events.jsonl
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

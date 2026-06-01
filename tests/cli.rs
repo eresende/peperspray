@@ -4,6 +4,10 @@ fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_peperspray")
 }
 
+fn daemon_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_pepersprayd")
+}
+
 fn sample_config(mode: &str) -> String {
     format!(
         r#"mode = "{mode}"
@@ -115,4 +119,30 @@ fn policy_review_min_events_filters_suggestions() {
 
     assert!(stdout.contains("Allow python3 to access aws"));
     assert!(!stdout.contains("Allow git to access ssh"));
+}
+
+#[test]
+fn daemon_check_validates_config_and_writes_lifecycle_log() {
+    let dir = tempfile::tempdir().expect("temp dir should be created");
+    let config = dir.path().join("config.toml");
+    let log_file = dir.path().join("daemon.jsonl");
+    std::fs::write(&config, sample_config("learn")).expect("config should be written");
+
+    let output = Command::new(daemon_bin())
+        .args(["--config"])
+        .arg(&config)
+        .args(["--log-file"])
+        .arg(&log_file)
+        .arg("--check")
+        .output()
+        .expect("command should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    let log = std::fs::read_to_string(log_file).expect("daemon log should be written");
+
+    assert!(stdout.contains("Daemon config is valid."));
+    assert!(log.contains("\"component\":\"pepersprayd\""));
+    assert!(log.contains("\"message\":\"daemon config loaded\""));
 }
