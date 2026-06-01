@@ -1,10 +1,10 @@
 use crate::event::Operation;
 use crate::paths;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub mode: Mode,
     pub users: Vec<ProtectedUser>,
@@ -12,26 +12,35 @@ pub struct Config {
     pub allow_rules: Vec<AllowRule>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     Learn,
     Enforce,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Mode::Learn => write!(f, "learn"),
+            Mode::Enforce => write!(f, "enforce"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProtectedUser {
     pub uid: u32,
     pub groups: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProtectedPathGroup {
     pub name: String,
     pub paths: Vec<PathBuf>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AllowRule {
     pub name: String,
     pub uid: u32,
@@ -162,7 +171,7 @@ fn validate_duplicate_allow_rule_behavior(config: &Config, errors: &mut Vec<Stri
 pub fn normalize_config_paths(config: &mut Config) {
     for group in &mut config.protected_groups {
         for path in &mut group.paths {
-            *path = paths::normalize_path(path);
+            *path = paths::expand_and_normalize_path(path);
         }
     }
 
@@ -329,5 +338,29 @@ operation = "open_read"
         let config: Config = toml::from_str(toml).expect("config should parse");
 
         assert_eq!(config.allow_rules[0].operation, Some(Operation::OpenRead));
+    }
+
+    #[test]
+    fn mode_display_uses_lowercase_names() {
+        assert_eq!(Mode::Learn.to_string(), "learn");
+        assert_eq!(Mode::Enforce.to_string(), "enforce");
+    }
+
+    #[test]
+    fn normalize_config_expands_tilde_in_protected_paths() {
+        let Some(home) = std::env::var_os("HOME") else {
+            return;
+        };
+
+        let mut config = sample_config();
+
+        config.protected_groups[0].paths = vec![PathBuf::from("~/.aws")];
+
+        normalize_config_paths(&mut config);
+
+        assert_eq!(
+            config.protected_groups[0].paths[0],
+            PathBuf::from(home).join(".aws")
+        );
     }
 }

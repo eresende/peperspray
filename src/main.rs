@@ -13,6 +13,9 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+const DEFAULT_CONFIG_PATH: &str = "examples/config.toml";
+const DEFAULT_LOG_FILE: &str = "./events.jsonl";
+
 #[derive(Debug, Parser)]
 #[command(name = "peperspray")]
 #[command(about = "Credential access guard for developer workstations.")]
@@ -54,10 +57,20 @@ struct ReviewCandidateOutput {
     suggested_name: String,
 }
 
+#[derive(Debug, Serialize)]
+struct StatusOutput<'a> {
+    mode: String,
+    protected_users: usize,
+    protected_groups: usize,
+    allow_rules: usize,
+    groups: &'a [config::ProtectedPathGroup],
+    rules: &'a [config::AllowRule],
+}
+
 #[derive(Debug, Subcommand)]
 enum Command {
     PolicyValidate {
-        #[arg(long, default_value = "examples/config.toml")]
+        #[arg(long, default_value = DEFAULT_CONFIG_PATH)]
         config: PathBuf,
     },
 
@@ -73,7 +86,7 @@ enum Command {
         #[arg(long, conflicts_with_all = ["exe", "uid"])]
         pid: Option<u32>,
 
-        #[arg(long, default_value = "examples/config.toml")]
+        #[arg(long, default_value = DEFAULT_CONFIG_PATH)]
         config: PathBuf,
 
         #[arg(long)]
@@ -84,7 +97,7 @@ enum Command {
     },
 
     Logs {
-        #[arg(long, default_value = "./events.jsonl")]
+        #[arg(long, default_value = DEFAULT_LOG_FILE)]
         log_file: PathBuf,
 
         #[arg(long)]
@@ -100,7 +113,7 @@ enum Command {
     Why {
         event_id: Uuid,
 
-        #[arg(long, default_value = "./events.jsonl")]
+        #[arg(long, default_value = DEFAULT_LOG_FILE)]
         log_file: PathBuf,
 
         #[arg(long)]
@@ -108,7 +121,7 @@ enum Command {
     },
 
     PolicyReview {
-        #[arg(long, default_value = "./events.jsonl")]
+        #[arg(long, default_value = DEFAULT_LOG_FILE)]
         log_file: PathBuf,
 
         #[arg(long)]
@@ -126,6 +139,14 @@ enum Command {
 
     InspectProcess {
         pid: u32,
+    },
+
+    Status {
+        #[arg(long, default_value = DEFAULT_CONFIG_PATH)]
+        config: PathBuf,
+
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -279,6 +300,29 @@ fn main() -> anyhow::Result<()> {
                 .with_context(|| format!("failed to inspect proces {pid}"))?;
 
             print_process_info(&info);
+        }
+
+        Command::Status { config, json } => {
+            let parsed_config = config::load_config(&config)
+                .with_context(|| format!("failed to load config from {}", config.display()))?;
+
+            let validation_errors = config::validate_config(&parsed_config);
+
+            if !validation_errors.is_empty() {
+                println!("Config validation failed:");
+
+                for error in validation_errors {
+                    println!("- {error}");
+                }
+
+                std::process::exit(1);
+            }
+
+            if json {
+                print_status_json(&parsed_config)?;
+            } else {
+                print_status(&parsed_config);
+            }
         }
     }
 
@@ -718,6 +762,69 @@ fn immediate_parent_exe(log: &logging::OwnedDecisionLog) -> Option<PathBuf> {
     log.parent_chain
         .first()
         .and_then(|parent| parent.exe.clone())
+}
+
+fn print_status(config: &config::Config) {
+    println!("Mode: {}", config.mode);
+    println!("Protected users: {}", config.users.len());
+    println!("Protected groups: {}", config.protected_groups.len());
+    println!("Allow rules: {}", config.allow_rules.len());
+    println!();
+
+    println!("Protected groups:");
+    for group in &config.protected_groups {
+        println!("  {}", group.name);
+
+        for path in &group.paths {
+            println!("    {}", path.display());
+        }
+    }
+
+    println!();
+    println!("Allow rules:");
+
+    if config.allow_rules.is_empty() {
+        println!("  <none>");
+        return;
+    }
+
+    for rule in &config.allow_rules {
+        println!("  {}", rule.name);
+        println!("    uid:        {}", rule.uid);
+        println!("    exe:        {}", rule.exe.display());
+        println!("    path_group: {}", rule.path_group);
+        println!(
+            "    operation:  {}",
+            rule.operation
+                .map(|operation| operation.to_string())
+                .unwrap_or_else(|| "<any>".to_string())
+        );
+        println!(
+            "    parent_exe: {}",
+            rule.parent_exe
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "<none>".to_string())
+        );
+    }
+}
+
+fn status_to_json(config: &config::Config) -> anyhow::Result<String> {
+    let output = StatusOutput {
+        mode: config.mode.to_string(),
+        protected_users: config.users.len(),
+        protected_groups: config.protected_groups.len(),
+        allow_rules: config.allow_rules.len(),
+        groups: &config.protected_groups,
+        rules: &config.allow_rules,
+    };
+
+    Ok(serde_json::to_string_pretty(&output)?)
+}
+
+fn print_status_json(config: &config::Config) -> anyhow::Result<()> {
+    println!("{}", status_to_json(config)?);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1164,5 +1271,37 @@ mod tests {
             immediate_parent_exe(&log),
             Some(PathBuf::from("/usr/bin/zsh"))
         );
+    }
+
+    #[test]
+    fn status_to_json_outputs_summary() {
+        let config = config::Config {
+            mode: config::Mode::Learn,
+            users: vec![config::ProtectedUser {
+                uid: 1000,
+                groups: vec!["aws".to_string()],
+            }],
+            protected_groups: vec![config::ProtectedPathGroup {
+                name: "aws".to_string(),
+                paths: vec![PathBuf::from("/home/alice/.aws")],
+            }],
+            allow_rules: vec![config::AllowRule {
+                name: "Allow AWS CLI".to_string(),
+                uid: 1000,
+                exe: PathBuf::from("/usr/bin/aws"),
+                path_group: "aws".to_string(),
+                parent_exe: None,
+                operation: None,
+            }],
+        };
+
+        let json = status_to_json(&config).expect("status should serialize");
+
+        assert!(json.contains("\"mode\": \"learn\""));
+        assert!(json.contains("\"protected_users\": 1"));
+        assert!(json.contains("\"protected_groups\": 1"));
+        assert!(json.contains("\"allow_rules\": 1"));
+        assert!(json.contains("\"name\": \"aws\""));
+        assert!(json.contains("\"name\": \"Allow AWS CLI\""));
     }
 }
