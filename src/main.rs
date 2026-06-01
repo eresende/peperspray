@@ -336,7 +336,12 @@ fn main() -> anyhow::Result<()> {
         Command::Setup { output, force } => {
             let uid = current_uid();
 
-            write_starter_config(&output, uid, force).with_context(|| {
+            let statuses = detect_setup_tool_statuses();
+            let tools = detected_tools_from_statuses(&statuses);
+
+            print_setup_tool_detection(&statuses);
+
+            write_starter_config_with_tools(&output, uid, &tools, force).with_context(|| {
                 format!("failed to write starter config to {}", output.display())
             })?;
 
@@ -849,11 +854,6 @@ fn current_uid() -> u32 {
     nix::unistd::geteuid().as_raw()
 }
 
-fn starter_config_toml(uid: u32) -> String {
-    let tools = detect_setup_tools();
-    starter_config_toml_with_tools(uid, &tools)
-}
-
 fn starter_config_toml_with_tools(uid: u32, tools: &[DetectedTool]) -> String {
     let protected_groups = starter_protected_groups_toml();
     let allow_rules = starter_allow_rules_toml(uid, tools);
@@ -920,7 +920,12 @@ operation = "open_read""#,
         .join("\n\n")
 }
 
-fn write_starter_config(path: &std::path::Path, uid: u32, force: bool) -> anyhow::Result<()> {
+fn write_starter_config_with_tools(
+    path: &std::path::Path,
+    uid: u32,
+    tools: &[DetectedTool],
+    force: bool,
+) -> anyhow::Result<()> {
     if path.exists() && !force {
         anyhow::bail!(
             "{} already exists; use --force to overwrite it",
@@ -928,7 +933,7 @@ fn write_starter_config(path: &std::path::Path, uid: u32, force: bool) -> anyhow
         );
     }
 
-    std::fs::write(path, starter_config_toml(uid))?;
+    std::fs::write(path, starter_config_toml_with_tools(uid, tools))?;
 
     Ok(())
 }
@@ -975,19 +980,74 @@ struct DetectedTool {
     path_group: String,
 }
 
-fn detect_setup_tools() -> Vec<DetectedTool> {
-    SETUP_TOOLS
+fn detected_tools_from_statuses(statuses: &[SetupToolDetection]) -> Vec<DetectedTool> {
+    statuses
         .iter()
-        .filter_map(|tool| {
-            let exe = which::which(tool.command).ok()?;
+        .filter_map(|status| {
+            let exe = status.exe.clone()?;
 
             Some(DetectedTool {
-                rule_name: tool.rule_name.to_string(),
-                exe: paths::normalize_path(&exe),
-                path_group: tool.path_group.to_string(),
+                rule_name: status.tool.rule_name.to_string(),
+                exe,
+                path_group: status.tool.path_group.to_string(),
             })
         })
         .collect()
+}
+
+#[derive(Debug, Clone)]
+struct SetupToolDetection {
+    tool: SetupTool,
+    exe: Option<PathBuf>,
+}
+
+fn detect_setup_tool_statuses() -> Vec<SetupToolDetection> {
+    SETUP_TOOLS
+        .iter()
+        .map(|tool| {
+            let exe = which::which(tool.command)
+                .ok()
+                .map(|path| paths::normalize_path(&path));
+
+            SetupToolDetection { tool: *tool, exe }
+        })
+        .collect()
+}
+
+fn print_setup_tool_detection(statuses: &[SetupToolDetection]) {
+    let detected: Vec<&SetupToolDetection> = statuses
+        .iter()
+        .filter(|status| status.exe.is_some())
+        .collect();
+
+    let skipped: Vec<&SetupToolDetection> = statuses
+        .iter()
+        .filter(|status| status.exe.is_none())
+        .collect();
+
+    println!("Detected tools:");
+
+    if detected.is_empty() {
+        println!("  <none>");
+    } else {
+        for status in detected {
+            let exe = status.exe.as_ref().expect("detected tool should have exe");
+            println!("  {:<7} {}", status.tool.command, exe.display());
+        }
+    }
+
+    println!();
+    println!("Skipped tools:");
+
+    if skipped.is_empty() {
+        println!("  <none>");
+    } else {
+        for status in skipped {
+            println!("  {:<7} not found in PATH", status.tool.command);
+        }
+    }
+
+    println!();
 }
 
 #[cfg(test)]
@@ -1517,12 +1577,20 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir should be created");
         let path = dir.path().join("config.toml");
 
-        write_starter_config(&path, 1000, false).expect("starter config should be written");
+        let tools = [DetectedTool {
+            rule_name: "Allow SSH client".to_string(),
+            exe: PathBuf::from("/usr/bin/ssh"),
+            path_group: "ssh".to_string(),
+        }];
+
+        write_starter_config_with_tools(&path, 1000, &tools, false)
+            .expect("starter config should be written");
 
         let contents = std::fs::read_to_string(&path).expect("config should be readable");
 
         assert!(contents.contains("uid = 1000"));
         assert!(contents.contains("mode = \"learn\""));
+        assert!(contents.contains("Allow SSH client"));
     }
 
     #[test]
@@ -1530,9 +1598,16 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir should be created");
         let path = dir.path().join("config.toml");
 
-        write_starter_config(&path, 1000, false).expect("first write should succeed");
+        let tools = [DetectedTool {
+            rule_name: "Allow SSH client".to_string(),
+            exe: PathBuf::from("/usr/bin/ssh"),
+            path_group: "ssh".to_string(),
+        }];
 
-        let result = write_starter_config(&path, 1000, false);
+        write_starter_config_with_tools(&path, 1000, &tools, false)
+            .expect("first write should succeed");
+
+        let result = write_starter_config_with_tools(&path, 1000, &tools, false);
 
         assert!(result.is_err());
     }
@@ -1544,7 +1619,14 @@ mod tests {
 
         std::fs::write(&path, "old contents").expect("old config should be written");
 
-        write_starter_config(&path, 1000, true).expect("force write should succeed");
+        let tools = [DetectedTool {
+            rule_name: "Allow SSH client".to_string(),
+            exe: PathBuf::from("/usr/bin/ssh"),
+            path_group: "ssh".to_string(),
+        }];
+
+        write_starter_config_with_tools(&path, 1000, &tools, true)
+            .expect("force write should succeed");
 
         let contents = std::fs::read_to_string(&path).expect("config should be readable");
 
@@ -1562,5 +1644,34 @@ mod tests {
 
         assert_eq!(config.allow_rules.len(), 0);
         assert!(toml.contains("groups = [\"aws\", \"ssh\", \"github\", \"gcloud\", \"docker\"]"));
+    }
+
+    #[test]
+    fn detected_tools_from_statuses_returns_only_found_tools() {
+        let statuses = [
+            SetupToolDetection {
+                tool: SetupTool {
+                    command: "aws",
+                    rule_name: "Allow AWS CLI",
+                    path_group: "aws",
+                },
+                exe: Some(PathBuf::from("/usr/bin/aws")),
+            },
+            SetupToolDetection {
+                tool: SetupTool {
+                    command: "gcloud",
+                    rule_name: "Allow Google Cloud CLI",
+                    path_group: "gcloud",
+                },
+                exe: None,
+            },
+        ];
+
+        let tools = detected_tools_from_statuses(&statuses);
+
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].rule_name, "Allow AWS CLI");
+        assert_eq!(tools[0].exe, PathBuf::from("/usr/bin/aws"));
+        assert_eq!(tools[0].path_group, "aws");
     }
 }
