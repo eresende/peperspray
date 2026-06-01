@@ -389,62 +389,60 @@ The current code is organized around the planned backend split:
 - `src/logging.rs`: decision log serialization and JSONL helpers
 - `src/paths.rs`: path normalization and `~` expansion helpers
 - `src/process.rs`: Linux `/proc` process inspection
-- `src/main.rs`: CLI commands, output formatting, setup, and review helpers
+- `src/cli.rs`: clap command definitions and CLI defaults
+- `src/main.rs`: top-level command dispatch and CLI-specific access-event helpers
+- `src/setup.rs`: starter config generation and local tool detection
+- `src/status.rs`: status output formatting
+- `src/review.rs`: learned-access grouping and suggested allow-rule generation
+- `src/commands/logs.rs`: log filtering, lookup, and rendering
 
-`src/main.rs` is now intentionally feature-rich but getting large. A near-term
-cleanup task is to move setup, status, logs, and policy-review helpers into
-separate modules before starting the daemon work.
+`src/main.rs` is intentionally kept as a thin dispatcher so the portable policy,
+logging, setup, status, and review behavior remains easier to test in isolation.
 
 ## Pending Milestones / Tasks
 
 Suggested next milestones:
 
-1. Refactor `src/main.rs` into smaller modules:
-  - `cli.rs`
-  - `setup.rs`
-  - `status.rs`
-  - `review.rs`
-  - `commands/logs.rs` or similar
-2. Add integration tests for CLI behavior using `assert_cmd` or a similar crate.
-3. Add `learn` and `enforce` commands that update the configured mode safely.
-4. Add safe config-writing helpers for mode changes.
-5. Add config backup behavior before writing changes.
-6. Add `logs --follow`.
-7. Add `logs --since` or timestamp filtering.
-8. Add `policy-review --min-events <N>`.
-9. Add support for more protected presets:
-  - npm
-  - Ansible Vault
-  - Git credentials
-  - dotenv files
-10. Add project-root based dotenv protection.
-11. Improve setup from generated starter config to interactive setup.
-12. Add explicit threat-model and MVP-limitation sections to `docs/SPEC.md`.
-13. Split binaries into:
-- `peperspray`
-- `pepersprayd`
-14. Add a minimal daemon skeleton without enforcement.
-15. Add daemon config loading and validation.
-16. Add daemon JSONL logging.
-17. Add a minimal Linux `fanotify` proof of concept.
-18. Convert `fanotify` permission events into `AccessEvent`.
-19. Add allow/deny responses for `FAN_OPEN_PERM`.
-20. Add integration tests for protected temporary files on Linux.
-21. Add systemd unit file.
-22. Add `/etc/peperspray/config.toml` and `/var/log/peperspray/events.jsonl`
+1. Add integration tests for CLI behavior using `assert_cmd` or a similar crate.
+2. Add `learn` and `enforce` commands that update the configured mode safely.
+3. Add safe config-writing helpers for mode changes.
+4. Add config backup behavior before writing changes.
+5. Add `logs --follow`.
+6. Add `logs --since` or timestamp filtering.
+7. Add `policy-review --min-events <N>`.
+8. Add support for more protected presets:
+   - npm
+   - Ansible Vault
+   - Git credentials
+   - dotenv files
+9. Add project-root based dotenv protection.
+10. Improve setup from generated starter config to interactive setup.
+11. Add explicit threat-model and MVP-limitation sections to `docs/SPEC.md`.
+12. Split binaries into:
+   - `peperspray`
+   - `pepersprayd`
+13. Add a minimal daemon skeleton without enforcement.
+14. Add daemon config loading and validation.
+15. Add daemon JSONL logging.
+16. Add a minimal Linux `fanotify` proof of concept.
+17. Convert `fanotify` permission events into `AccessEvent`.
+18. Add allow/deny responses for `FAN_OPEN_PERM`.
+19. Add integration tests for protected temporary files on Linux.
+20. Add systemd unit file.
+21. Add `/etc/peperspray/config.toml` and `/var/log/peperspray/events.jsonl`
     defaults for installed mode.
-23. Add `.deb` packaging.
-24. Add uninstall/purge behavior.
-25. Document failure behavior:
-  - daemon crash
-  - config parse failure
-  - log write failure
-  - process metadata lookup failure
-26. Evaluate symlink, hard-link, bind-mount, and file-replacement behavior.
-27. Add optional binary identity hardening, such as inode or hash matching.
-28. Add desktop notification or `why last` UX.
-29. Add CI for `cargo fmt`, `cargo test`, and `cargo clippy`.
-30. Add release documentation.
+22. Add `.deb` packaging.
+23. Add uninstall/purge behavior.
+24. Document failure behavior:
+   - daemon crash
+   - config parse failure
+   - log write failure
+   - process metadata lookup failure
+25. Evaluate symlink, hard-link, bind-mount, and file-replacement behavior.
+26. Add optional binary identity hardening, such as inode or hash matching.
+27. Add desktop notification or `why last` UX.
+28. Add CI for `cargo fmt`, `cargo test`, and `cargo clippy`.
+29. Add release documentation.
 
 ## Current MVP Boundary
 
