@@ -19,9 +19,9 @@ core that the future daemon will use:
 - optional operation and parent-process constraints on allow rules
 - Linux `/proc` process inspection
 - JSONL decision logs with timestamps and event IDs
-- log inspection, filtering, JSON output, and event lookup
+- log inspection, filtering, following, JSON output, and event lookup
 - learned-access review and suggested allow-rule generation
-- starter config generation through `setup`
+- starter and interactive config generation through `setup`
 - human and JSON status output
 
 The daemon, Linux `fanotify` backend, `systemd` service, `.deb` packaging, and
@@ -46,6 +46,8 @@ Implemented commands:
 
 - `setup`
 - `status`
+- `learn`
+- `enforce`
 - `policy-validate`
 - `test-access`
 - `inspect-process`
@@ -62,7 +64,8 @@ Implemented policy and CLI capabilities:
   - duplicate allow-rule names
   - duplicate allow-rule behavior
 - Learn/enforce policy decisions
-- Protected path matching using component-aware `Path::starts_with`
+- Protected path matching using component-aware `Path::starts_with`, with
+  project-root dotenv filename matching for relative dotenv presets
 - Path normalization for config and access events
 - `~` expansion for protected group paths
 - Optional `operation` field on allow rules
@@ -70,21 +73,24 @@ Implemented policy and CLI capabilities:
 - Process inspection from `/proc/<pid>`
 - Parent-process chain collection
 - JSONL decision logs
-- Log filtering by decision and count
+- Log filtering by decision, count, and timestamp
+- Log following
 - Single-event lookup by event ID
-- Policy-review suggestions as human text, JSON, TOML, or suggestion file
-- Starter config generation with detected local tools
+- Policy-review suggestions as human text, JSON, TOML, or suggestion file,
+  with minimum-event filtering
+- Starter and interactive config generation with detected local tools
+- Safe mode changes with config backups
+- Expanded protected presets for npm, Ansible Vault, Git credentials, and
+  project dotenv files
 
 Not implemented yet:
 
 - root daemon
 - Linux `fanotify` permission-event integration
 - real file-read blocking
-- `learn` and `enforce` commands that modify the active config
 - installation layout under `/etc/peperspray/` and `/var/log/peperspray/`
 - `.deb` packaging
 - `systemd` service management
-- interactive setup
 - advanced tamper resistance
 
 ## Requirements
@@ -104,8 +110,9 @@ cargo clippy --all-targets -- -D warnings
 ```
 
 The current test suite covers config validation, policy decisions, path handling,
-process metadata parsing, log filtering, event lookup, setup generation, status
-JSON, and policy-review candidate grouping/output.
+process metadata parsing, log filtering/follow helpers, event lookup, setup
+generation, status JSON, policy-review candidate grouping/output, and CLI
+integration behavior.
 
 ## Configuration
 
@@ -122,7 +129,7 @@ mode = "learn"
 
 [[users]]
 uid = 1000
-groups = ["aws", "ssh", "github", "gcloud", "docker"]
+groups = ["aws", "ssh", "github", "gcloud", "docker", "npm", "ansible", "git", "dotenv"]
 
 [[protected_groups]]
 name = "aws"
@@ -134,7 +141,7 @@ paths = ["~/.ssh"]
 
 [[protected_groups]]
 name = "github"
-paths = ["~/.config/gh", "~/.git-credentials", "~/.netrc"]
+paths = ["~/.config/gh"]
 
 [[protected_groups]]
 name = "gcloud"
@@ -143,6 +150,22 @@ paths = ["~/.config/gcloud"]
 [[protected_groups]]
 name = "docker"
 paths = ["~/.docker"]
+
+[[protected_groups]]
+name = "npm"
+paths = ["~/.npmrc"]
+
+[[protected_groups]]
+name = "ansible"
+paths = ["~/.ansible", "~/.ansible/vault_password"]
+
+[[protected_groups]]
+name = "git"
+paths = ["~/.git-credentials", "~/.netrc"]
+
+[[protected_groups]]
+name = "dotenv"
+paths = [".env", ".env.local", ".env.development", ".env.production"]
 
 [[allow_rules]]
 name = "Allow AWS CLI"
@@ -213,8 +236,25 @@ Emit a JSON setup report:
 cargo run -- setup --output ./generated-config.toml --force --json
 ```
 
+Run interactive setup:
+
+```sh
+cargo run -- setup --output ./generated-config.toml --interactive
+```
+
 `setup` detects common tools in `PATH`, such as `aws`, `ssh`, `gh`, `gcloud`,
-and `docker`, and only generates allow rules for tools that are present.
+`docker`, `npm`, `ansible-vault`, and `git`, and only generates allow rules for
+tools that are present.
+
+### Change policy mode
+
+```sh
+cargo run -- learn --config ./generated-config.toml
+cargo run -- enforce --config ./generated-config.toml
+```
+
+Mode changes validate the config first and write a `.bak` copy before replacing
+the config.
 
 ### Show policy status
 
@@ -281,6 +321,8 @@ cargo run -- logs --log-file ./events.jsonl
 cargo run -- logs --log-file ./events.jsonl --last 5
 cargo run -- logs --log-file ./events.jsonl --decision allow
 cargo run -- logs --log-file ./events.jsonl --decision deny
+cargo run -- logs --log-file ./events.jsonl --since 2026-01-01T00:00:00Z
+cargo run -- logs --log-file ./events.jsonl --follow
 cargo run -- logs --log-file ./events.jsonl --json
 ```
 
@@ -309,6 +351,7 @@ TOML snippets only:
 
 ```sh
 cargo run -- policy-review --log-file ./events.jsonl --toml
+cargo run -- policy-review --log-file ./events.jsonl --min-events 3 --toml
 ```
 
 Write TOML suggestions to a separate file:
@@ -403,46 +446,31 @@ logging, setup, status, and review behavior remains easier to test in isolation.
 
 Suggested next milestones:
 
-1. Add integration tests for CLI behavior using `assert_cmd` or a similar crate.
-2. Add `learn` and `enforce` commands that update the configured mode safely.
-3. Add safe config-writing helpers for mode changes.
-4. Add config backup behavior before writing changes.
-5. Add `logs --follow`.
-6. Add `logs --since` or timestamp filtering.
-7. Add `policy-review --min-events <N>`.
-8. Add support for more protected presets:
-   - npm
-   - Ansible Vault
-   - Git credentials
-   - dotenv files
-9. Add project-root based dotenv protection.
-10. Improve setup from generated starter config to interactive setup.
-11. Add explicit threat-model and MVP-limitation sections to `docs/SPEC.md`.
-12. Split binaries into:
+1. Split binaries into:
    - `peperspray`
    - `pepersprayd`
-13. Add a minimal daemon skeleton without enforcement.
-14. Add daemon config loading and validation.
-15. Add daemon JSONL logging.
-16. Add a minimal Linux `fanotify` proof of concept.
-17. Convert `fanotify` permission events into `AccessEvent`.
-18. Add allow/deny responses for `FAN_OPEN_PERM`.
-19. Add integration tests for protected temporary files on Linux.
-20. Add systemd unit file.
-21. Add `/etc/peperspray/config.toml` and `/var/log/peperspray/events.jsonl`
+2. Add a minimal daemon skeleton without enforcement.
+3. Add daemon config loading and validation.
+4. Add daemon JSONL logging.
+5. Add a minimal Linux `fanotify` proof of concept.
+6. Convert `fanotify` permission events into `AccessEvent`.
+7. Add allow/deny responses for `FAN_OPEN_PERM`.
+8. Add integration tests for protected temporary files on Linux.
+9. Add systemd unit file.
+10. Add `/etc/peperspray/config.toml` and `/var/log/peperspray/events.jsonl`
     defaults for installed mode.
-22. Add `.deb` packaging.
-23. Add uninstall/purge behavior.
-24. Document failure behavior:
+11. Add `.deb` packaging.
+12. Add uninstall/purge behavior.
+13. Document failure behavior:
    - daemon crash
    - config parse failure
    - log write failure
    - process metadata lookup failure
-25. Evaluate symlink, hard-link, bind-mount, and file-replacement behavior.
-26. Add optional binary identity hardening, such as inode or hash matching.
-27. Add desktop notification or `why last` UX.
-28. Add CI for `cargo fmt`, `cargo test`, and `cargo clippy`.
-29. Add release documentation.
+14. Evaluate symlink, hard-link, bind-mount, and file-replacement behavior.
+15. Add optional binary identity hardening, such as inode or hash matching.
+16. Add desktop notification or `why last` UX.
+17. Add CI for `cargo fmt`, `cargo test`, and `cargo clippy`.
+18. Add release documentation.
 
 ## Current MVP Boundary
 

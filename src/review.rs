@@ -104,6 +104,16 @@ pub fn print_review_candidates(candidates: &[ReviewCandidate]) {
     }
 }
 
+pub fn filter_candidates_by_min_events(
+    candidates: Vec<ReviewCandidate>,
+    min_events: usize,
+) -> Vec<ReviewCandidate> {
+    candidates
+        .into_iter()
+        .filter(|candidate| candidate.event_count >= min_events)
+        .collect()
+}
+
 fn executable_name(exe: &Path) -> String {
     exe.file_name()
         .and_then(|name| name.to_str())
@@ -319,6 +329,35 @@ mod tests {
         assert!(json.contains("\"uid\": 1000"));
         assert!(json.contains("\"path_group\": \"aws\""));
         assert!(json.contains("\"suggested_name\": \"Allow python3 to access aws\""));
+    }
+
+    #[test]
+    fn filter_candidates_by_min_events_removes_low_frequency_candidates() {
+        let candidates = vec![
+            ReviewCandidate {
+                key: ReviewCandidateKey {
+                    uid: 1000,
+                    exe: PathBuf::from("/usr/bin/python3"),
+                    path_group: "aws".to_string(),
+                    parent_exe: None,
+                },
+                event_count: 1,
+            },
+            ReviewCandidate {
+                key: ReviewCandidateKey {
+                    uid: 1000,
+                    exe: PathBuf::from("/usr/bin/git"),
+                    path_group: "ssh".to_string(),
+                    parent_exe: None,
+                },
+                event_count: 3,
+            },
+        ];
+
+        let candidates = filter_candidates_by_min_events(candidates, 2);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].key.exe, PathBuf::from("/usr/bin/git"));
     }
 
     #[test]

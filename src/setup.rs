@@ -1,6 +1,9 @@
 use crate::event::Operation;
 use crate::paths;
+use anyhow::Context;
 use serde::Serialize;
+use std::collections::HashSet;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize)]
@@ -35,6 +38,51 @@ pub struct SetupTool {
     path_group: &'static str,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ProtectedPreset {
+    name: &'static str,
+    paths: &'static [&'static str],
+}
+
+const PROTECTED_PRESETS: &[ProtectedPreset] = &[
+    ProtectedPreset {
+        name: "aws",
+        paths: &["~/.aws"],
+    },
+    ProtectedPreset {
+        name: "ssh",
+        paths: &["~/.ssh"],
+    },
+    ProtectedPreset {
+        name: "github",
+        paths: &["~/.config/gh"],
+    },
+    ProtectedPreset {
+        name: "gcloud",
+        paths: &["~/.config/gcloud"],
+    },
+    ProtectedPreset {
+        name: "docker",
+        paths: &["~/.docker"],
+    },
+    ProtectedPreset {
+        name: "npm",
+        paths: &["~/.npmrc"],
+    },
+    ProtectedPreset {
+        name: "ansible",
+        paths: &["~/.ansible", "~/.ansible/vault_password"],
+    },
+    ProtectedPreset {
+        name: "git",
+        paths: &["~/.git-credentials", "~/.netrc"],
+    },
+    ProtectedPreset {
+        name: "dotenv",
+        paths: &[".env", ".env.local", ".env.development", ".env.production"],
+    },
+];
+
 const SETUP_TOOLS: &[SetupTool] = &[
     SetupTool {
         command: "aws",
@@ -61,10 +109,26 @@ const SETUP_TOOLS: &[SetupTool] = &[
         rule_name: "Allow Docker CLI",
         path_group: "docker",
     },
+    SetupTool {
+        command: "npm",
+        rule_name: "Allow npm",
+        path_group: "npm",
+    },
+    SetupTool {
+        command: "ansible-vault",
+        rule_name: "Allow Ansible Vault",
+        path_group: "ansible",
+    },
+    SetupTool {
+        command: "git",
+        rule_name: "Allow Git",
+        path_group: "git",
+    },
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DetectedTool {
+    command: String,
     rule_name: String,
     exe: PathBuf,
     path_group: String,
@@ -74,6 +138,12 @@ pub struct DetectedTool {
 pub struct SetupToolDetection {
     tool: SetupTool,
     exe: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SetupOptions {
+    group_names: HashSet<String>,
+    allowed_commands: HashSet<String>,
 }
 
 pub fn current_uid() -> u32 {
@@ -100,6 +170,7 @@ pub fn detected_tools_from_statuses(statuses: &[SetupToolDetection]) -> Vec<Dete
             let exe = status.exe.clone()?;
 
             Some(DetectedTool {
+                command: status.tool.command.to_string(),
                 rule_name: status.tool.rule_name.to_string(),
                 exe,
                 path_group: status.tool.path_group.to_string(),
@@ -109,15 +180,25 @@ pub fn detected_tools_from_statuses(statuses: &[SetupToolDetection]) -> Vec<Dete
 }
 
 pub fn starter_config_toml_with_tools(uid: u32, tools: &[DetectedTool]) -> String {
-    let protected_groups = starter_protected_groups_toml();
-    let allow_rules = starter_allow_rules_toml(uid, tools);
+    let group_names = default_group_names();
+    starter_config_toml_with_selected_groups(uid, tools, &group_names)
+}
+
+pub fn starter_config_toml_with_selected_groups(
+    uid: u32,
+    tools: &[DetectedTool],
+    group_names: &[String],
+) -> String {
+    let protected_groups = starter_protected_groups_toml(group_names);
+    let allow_rules = starter_allow_rules_toml(uid, tools, group_names);
+    let group_list = quoted_group_list(group_names);
 
     let mut toml = format!(
         r#"mode = "learn"
 
 [[users]]
 uid = {uid}
-groups = ["aws", "ssh", "github", "gcloud", "docker"]
+groups = [{group_list}]
 
 {protected_groups}
 "#
@@ -132,30 +213,32 @@ groups = ["aws", "ssh", "github", "gcloud", "docker"]
     toml
 }
 
-fn starter_protected_groups_toml() -> String {
-    [
-        r#"[[protected_groups]]
-name = "aws"
-paths = ["~/.aws"]"#,
-        r#"[[protected_groups]]
-name = "ssh"
-paths = ["~/.ssh"]"#,
-        r#"[[protected_groups]]
-name = "github"
-paths = ["~/.config/gh", "~/.git-credentials", "~/.netrc"]"#,
-        r#"[[protected_groups]]
-name = "gcloud"
-paths = ["~/.config/gcloud"]"#,
-        r#"[[protected_groups]]
-name = "docker"
-paths = ["~/.docker"]"#,
-    ]
-    .join("\n\n")
+fn default_group_names() -> Vec<String> {
+    PROTECTED_PRESETS
+        .iter()
+        .map(|preset| preset.name.to_string())
+        .collect()
 }
 
-fn starter_allow_rules_toml(uid: u32, tools: &[DetectedTool]) -> String {
+fn starter_protected_groups_toml(group_names: &[String]) -> String {
+    PROTECTED_PRESETS
+        .iter()
+        .filter(|preset| group_names.iter().any(|name| name == preset.name))
+        .map(|preset| {
+            format!(
+                "[[protected_groups]]\nname = \"{}\"\npaths = [{}]",
+                preset.name,
+                quoted_list(preset.paths.iter().copied())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn starter_allow_rules_toml(uid: u32, tools: &[DetectedTool], group_names: &[String]) -> String {
     tools
         .iter()
+        .filter(|tool| group_names.iter().any(|name| name == &tool.path_group))
         .map(|tool| {
             format!(
                 r#"[[allow_rules]]
@@ -175,6 +258,17 @@ operation = "{}""#,
         .join("\n\n")
 }
 
+fn quoted_group_list(group_names: &[String]) -> String {
+    quoted_list(group_names.iter().map(String::as_str))
+}
+
+fn quoted_list<'a>(values: impl Iterator<Item = &'a str>) -> String {
+    values
+        .map(|value| format!("\"{value}\""))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub fn write_starter_config_with_tools(
     path: &Path,
     uid: u32,
@@ -191,6 +285,108 @@ pub fn write_starter_config_with_tools(
     std::fs::write(path, starter_config_toml_with_tools(uid, tools))?;
 
     Ok(())
+}
+
+pub fn write_starter_config_with_options(
+    path: &Path,
+    uid: u32,
+    tools: &[DetectedTool],
+    options: &SetupOptions,
+    force: bool,
+) -> anyhow::Result<()> {
+    if path.exists() && !force {
+        anyhow::bail!(
+            "{} already exists; use --force to overwrite it",
+            path.display()
+        );
+    }
+
+    let group_names = selected_group_names(options);
+    let tools = selected_tools(tools, options);
+
+    std::fs::write(
+        path,
+        starter_config_toml_with_selected_groups(uid, &tools, &group_names),
+    )?;
+
+    Ok(())
+}
+
+pub fn prompt_setup_options(statuses: &[SetupToolDetection]) -> anyhow::Result<SetupOptions> {
+    let mut group_names = HashSet::new();
+    let mut allowed_commands = HashSet::new();
+
+    println!("Select protected credential groups:");
+    for preset in PROTECTED_PRESETS {
+        if prompt_yes_no(&format!("Protect {} credentials?", preset.name), true)? {
+            group_names.insert(preset.name.to_string());
+        }
+    }
+
+    println!();
+    println!("Select allow rules for detected tools:");
+    for status in statuses.iter().filter(|status| status.exe.is_some()) {
+        if !group_names.contains(status.tool.path_group) {
+            continue;
+        }
+
+        if prompt_yes_no(
+            &format!(
+                "Allow {} to access {} credentials?",
+                status.tool.command, status.tool.path_group
+            ),
+            true,
+        )? {
+            allowed_commands.insert(status.tool.command.to_string());
+        }
+    }
+
+    Ok(SetupOptions {
+        group_names,
+        allowed_commands,
+    })
+}
+
+fn selected_group_names(options: &SetupOptions) -> Vec<String> {
+    PROTECTED_PRESETS
+        .iter()
+        .filter(|preset| options.group_names.contains(preset.name))
+        .map(|preset| preset.name.to_string())
+        .collect()
+}
+
+fn selected_tools(tools: &[DetectedTool], options: &SetupOptions) -> Vec<DetectedTool> {
+    tools
+        .iter()
+        .filter(|tool| {
+            options.group_names.contains(&tool.path_group)
+                && options.allowed_commands.contains(&tool.command)
+        })
+        .cloned()
+        .collect()
+}
+
+fn prompt_yes_no(prompt: &str, default: bool) -> anyhow::Result<bool> {
+    let suffix = if default { "[Y/n]" } else { "[y/N]" };
+
+    loop {
+        print!("{prompt} {suffix} ");
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin()
+            .read_line(&mut input)
+            .with_context(|| "failed to read setup input")?;
+
+        let input = input.trim().to_ascii_lowercase();
+
+        match input.as_str() {
+            "" => return Ok(default),
+            "y" | "yes" => return Ok(true),
+            "n" | "no" => return Ok(false),
+            _ => println!("Please answer yes or no."),
+        }
+    }
 }
 
 pub fn print_setup_tool_detection(statuses: &[SetupToolDetection]) {
@@ -281,16 +477,19 @@ pub fn print_setup_output_json(output: &SetupOutput) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn starter_config_contains_uid_and_default_groups() {
         let tools = [
             DetectedTool {
+                command: "aws".to_string(),
                 rule_name: "Allow AWS CLI".to_string(),
                 exe: PathBuf::from("/usr/bin/aws"),
                 path_group: "aws".to_string(),
             },
             DetectedTool {
+                command: "ssh".to_string(),
                 rule_name: "Allow SSH client".to_string(),
                 exe: PathBuf::from("/usr/bin/ssh"),
                 path_group: "ssh".to_string(),
@@ -300,9 +499,13 @@ mod tests {
         let toml = starter_config_toml_with_tools(1000, &tools);
 
         assert!(toml.contains("uid = 1000"));
-        assert!(toml.contains("groups = [\"aws\", \"ssh\", \"github\", \"gcloud\", \"docker\"]"));
+        assert!(toml.contains(
+            "groups = [\"aws\", \"ssh\", \"github\", \"gcloud\", \"docker\", \"npm\", \"ansible\", \"git\", \"dotenv\"]"
+        ));
         assert!(toml.contains("paths = [\"~/.aws\"]"));
         assert!(toml.contains("paths = [\"~/.ssh\"]"));
+        assert!(toml.contains("paths = [\"~/.npmrc\"]"));
+        assert!(toml.contains("paths = [\".env\", \".env.local\""));
         assert!(toml.contains("name = \"Allow AWS CLI\""));
         assert!(toml.contains("name = \"Allow SSH client\""));
         assert!(toml.contains("operation = \"open_read\""));
@@ -311,6 +514,7 @@ mod tests {
     #[test]
     fn starter_config_parses_as_config() {
         let tools = [DetectedTool {
+            command: "ssh".to_string(),
             rule_name: "Allow SSH client".to_string(),
             exe: PathBuf::from("/usr/bin/ssh"),
             path_group: "ssh".to_string(),
@@ -323,7 +527,7 @@ mod tests {
 
         assert_eq!(config.mode, crate::config::Mode::Learn);
         assert_eq!(config.users.len(), 1);
-        assert_eq!(config.protected_groups.len(), 5);
+        assert_eq!(config.protected_groups.len(), 9);
         assert_eq!(config.allow_rules.len(), 1);
     }
 
@@ -333,6 +537,7 @@ mod tests {
         let path = dir.path().join("config.toml");
 
         let tools = [DetectedTool {
+            command: "ssh".to_string(),
             rule_name: "Allow SSH client".to_string(),
             exe: PathBuf::from("/usr/bin/ssh"),
             path_group: "ssh".to_string(),
@@ -354,6 +559,7 @@ mod tests {
         let path = dir.path().join("config.toml");
 
         let tools = [DetectedTool {
+            command: "ssh".to_string(),
             rule_name: "Allow SSH client".to_string(),
             exe: PathBuf::from("/usr/bin/ssh"),
             path_group: "ssh".to_string(),
@@ -375,6 +581,7 @@ mod tests {
         std::fs::write(&path, "old contents").expect("old config should be written");
 
         let tools = [DetectedTool {
+            command: "ssh".to_string(),
             rule_name: "Allow SSH client".to_string(),
             exe: PathBuf::from("/usr/bin/ssh"),
             path_group: "ssh".to_string(),
@@ -399,7 +606,9 @@ mod tests {
             toml::from_str(&toml).expect("starter config should parse");
 
         assert_eq!(config.allow_rules.len(), 0);
-        assert!(toml.contains("groups = [\"aws\", \"ssh\", \"github\", \"gcloud\", \"docker\"]"));
+        assert!(toml.contains(
+            "groups = [\"aws\", \"ssh\", \"github\", \"gcloud\", \"docker\", \"npm\", \"ansible\", \"git\", \"dotenv\"]"
+        ));
     }
 
     #[test]
@@ -426,9 +635,45 @@ mod tests {
         let tools = detected_tools_from_statuses(&statuses);
 
         assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].command, "aws");
         assert_eq!(tools[0].rule_name, "Allow AWS CLI");
         assert_eq!(tools[0].exe, PathBuf::from("/usr/bin/aws"));
         assert_eq!(tools[0].path_group, "aws");
+    }
+
+    #[test]
+    fn starter_config_with_options_filters_groups_and_tools() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let path = dir.path().join("config.toml");
+        let tools = [
+            DetectedTool {
+                command: "aws".to_string(),
+                rule_name: "Allow AWS CLI".to_string(),
+                exe: PathBuf::from("/usr/bin/aws"),
+                path_group: "aws".to_string(),
+            },
+            DetectedTool {
+                command: "ssh".to_string(),
+                rule_name: "Allow SSH client".to_string(),
+                exe: PathBuf::from("/usr/bin/ssh"),
+                path_group: "ssh".to_string(),
+            },
+        ];
+        let options = SetupOptions {
+            group_names: HashSet::from(["aws".to_string()]),
+            allowed_commands: HashSet::from(["aws".to_string()]),
+        };
+
+        write_starter_config_with_options(&path, 1000, &tools, &options, false)
+            .expect("config should be written");
+
+        let contents = std::fs::read_to_string(&path).expect("config should be readable");
+
+        assert!(contents.contains("groups = [\"aws\"]"));
+        assert!(contents.contains("name = \"aws\""));
+        assert!(!contents.contains("name = \"ssh\""));
+        assert!(contents.contains("Allow AWS CLI"));
+        assert!(!contents.contains("Allow SSH client"));
     }
 
     #[test]

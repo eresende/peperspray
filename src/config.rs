@@ -74,6 +74,34 @@ pub fn load_config(path: &Path) -> anyhow::Result<Config> {
     Ok(config)
 }
 
+pub fn backup_path_for_config(path: &Path) -> PathBuf {
+    let mut file_name = path
+        .file_name()
+        .map(|name| name.to_os_string())
+        .unwrap_or_else(|| "config.toml".into());
+
+    file_name.push(".bak");
+
+    path.with_file_name(file_name)
+}
+
+pub fn set_config_mode(path: &Path, mode: Mode) -> anyhow::Result<PathBuf> {
+    let contents = fs::read_to_string(path)?;
+    let mut document: toml::Value = toml::from_str(&contents)?;
+
+    document["mode"] = toml::Value::String(mode.to_string());
+
+    let updated = toml::to_string_pretty(&document)?;
+    let backup_path = backup_path_for_config(path);
+    let temp_path = temp_path_for_config(path);
+
+    fs::copy(path, &backup_path)?;
+    fs::write(&temp_path, updated)?;
+    fs::rename(&temp_path, path)?;
+
+    Ok(backup_path)
+}
+
 pub fn validate_config(config: &Config) -> Vec<String> {
     let mut errors: Vec<String> = Vec::new();
 
@@ -84,6 +112,17 @@ pub fn validate_config(config: &Config) -> Vec<String> {
     validate_duplicate_allow_rule_behavior(config, &mut errors);
 
     errors
+}
+
+fn temp_path_for_config(path: &Path) -> PathBuf {
+    let mut file_name = path
+        .file_name()
+        .map(|name| name.to_os_string())
+        .unwrap_or_else(|| "config.toml".into());
+
+    file_name.push(".tmp");
+
+    path.with_file_name(file_name)
 }
 
 fn validate_user_groups(config: &Config, errors: &mut Vec<String>) {
@@ -364,5 +403,42 @@ operation = "open_read"
             config.protected_groups[0].paths[0],
             PathBuf::from(home).join(".aws")
         );
+    }
+
+    #[test]
+    fn backup_path_appends_bak_to_file_name() {
+        assert_eq!(
+            backup_path_for_config(Path::new("/tmp/config.toml")),
+            PathBuf::from("/tmp/config.toml.bak")
+        );
+    }
+
+    #[test]
+    fn set_config_mode_updates_mode_and_writes_backup() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let path = dir.path().join("config.toml");
+
+        std::fs::write(
+            &path,
+            r#"mode = "learn"
+
+[[users]]
+uid = 1000
+groups = ["aws"]
+
+[[protected_groups]]
+name = "aws"
+paths = ["~/.aws"]
+"#,
+        )
+        .expect("config should be written");
+
+        let backup_path = set_config_mode(&path, Mode::Enforce).expect("mode should be updated");
+        let updated = std::fs::read_to_string(&path).expect("updated config should be readable");
+        let backup = std::fs::read_to_string(&backup_path).expect("backup should be readable");
+
+        assert!(updated.contains("mode = \"enforce\""));
+        assert!(updated.contains("paths = [\"~/.aws\"]"));
+        assert!(backup.contains("mode = \"learn\""));
     }
 }

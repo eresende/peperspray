@@ -20,6 +20,16 @@ pub enum DecisionFilter {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
+    Learn {
+        #[arg(long, default_value = DEFAULT_CONFIG_PATH)]
+        config: PathBuf,
+    },
+
+    Enforce {
+        #[arg(long, default_value = DEFAULT_CONFIG_PATH)]
+        config: PathBuf,
+    },
+
     PolicyValidate {
         #[arg(long, default_value = DEFAULT_CONFIG_PATH)]
         config: PathBuf,
@@ -55,7 +65,13 @@ pub enum Command {
         last: Option<usize>,
 
         #[arg(long)]
+        since: Option<String>,
+
+        #[arg(long)]
         decision: Option<DecisionFilter>,
+
+        #[arg(long)]
+        follow: bool,
 
         #[arg(long)]
         json: bool,
@@ -74,6 +90,9 @@ pub enum Command {
     PolicyReview {
         #[arg(long, default_value = DEFAULT_LOG_FILE)]
         log_file: PathBuf,
+
+        #[arg(long, default_value_t = 1)]
+        min_events: usize,
 
         #[arg(long)]
         json: bool,
@@ -106,6 +125,9 @@ pub enum Command {
 
         #[arg(long)]
         force: bool,
+
+        #[arg(long)]
+        interactive: bool,
 
         #[arg(long)]
         json: bool,

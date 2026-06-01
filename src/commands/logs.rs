@@ -1,5 +1,11 @@
 use crate::cli::DecisionFilter;
 use crate::logging;
+use chrono::{DateTime, Utc};
+use std::fs::File;
+use std::io::{BufRead, BufReader, Seek};
+use std::path::Path;
+use std::thread;
+use std::time::Duration;
 use uuid::Uuid;
 
 pub fn print_log_entry(log: &logging::OwnedDecisionLog) {
@@ -57,11 +63,72 @@ pub fn filter_logs_by_decision(
         .collect()
 }
 
+pub fn filter_log_refs_since<'a>(
+    logs: &[&'a logging::OwnedDecisionLog],
+    since: Option<DateTime<Utc>>,
+) -> Vec<&'a logging::OwnedDecisionLog> {
+    logs.iter()
+        .copied()
+        .filter(|log| match since {
+            Some(since) => log.timestamp >= since,
+            None => true,
+        })
+        .collect()
+}
+
+pub fn parse_since_timestamp(value: &str) -> anyhow::Result<DateTime<Utc>> {
+    Ok(DateTime::parse_from_rfc3339(value)?.with_timezone(&Utc))
+}
+
+pub fn follow_jsonl_log(
+    path: &Path,
+    decision: Option<DecisionFilter>,
+    since: Option<DateTime<Utc>>,
+) -> anyhow::Result<()> {
+    let mut file = File::open(path)?;
+    file.seek(std::io::SeekFrom::End(0))?;
+    let mut reader = BufReader::new(file);
+
+    loop {
+        let mut line = String::new();
+        let bytes = reader.read_line(&mut line)?;
+
+        if bytes == 0 {
+            thread::sleep(Duration::from_millis(500));
+            continue;
+        }
+
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let log: logging::OwnedDecisionLog = serde_json::from_str(line.trim())?;
+
+        if !matches_decision(&log, decision) {
+            continue;
+        }
+
+        if since.is_some_and(|since| log.timestamp < since) {
+            continue;
+        }
+
+        print_log_entry(&log);
+    }
+}
+
 pub fn find_log_by_event_id(
     logs: &[logging::OwnedDecisionLog],
     event_id: Uuid,
 ) -> Option<&logging::OwnedDecisionLog> {
     logs.iter().find(|log| log.event_id == event_id)
+}
+
+fn matches_decision(log: &logging::OwnedDecisionLog, decision: Option<DecisionFilter>) -> bool {
+    match decision {
+        Some(DecisionFilter::Allow) => log.decision == "allow",
+        Some(DecisionFilter::Deny) => log.decision == "deny",
+        None => true,
+    }
 }
 
 pub fn print_log_detail(log: &logging::OwnedDecisionLog) {
@@ -214,6 +281,31 @@ mod tests {
         let selected = filter_logs_by_decision(&logs, None);
 
         assert_eq!(selected.len(), 2);
+    }
+
+    #[test]
+    fn filter_log_refs_since_returns_logs_at_or_after_timestamp() {
+        let mut logs = [fake_log(1), fake_log(2), fake_log(3)];
+        logs[0].timestamp = parse_since_timestamp("2026-01-01T00:00:00Z").unwrap();
+        logs[1].timestamp = parse_since_timestamp("2026-01-02T00:00:00Z").unwrap();
+        logs[2].timestamp = parse_since_timestamp("2026-01-03T00:00:00Z").unwrap();
+        let refs: Vec<&logging::OwnedDecisionLog> = logs.iter().collect();
+
+        let selected = filter_log_refs_since(
+            &refs,
+            Some(parse_since_timestamp("2026-01-02T00:00:00Z").unwrap()),
+        );
+
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected[0].exe, PathBuf::from("/usr/bin/tool-2"));
+        assert_eq!(selected[1].exe, PathBuf::from("/usr/bin/tool-3"));
+    }
+
+    #[test]
+    fn parse_since_timestamp_accepts_rfc3339() {
+        let timestamp = parse_since_timestamp("2026-01-02T03:04:05Z").unwrap();
+
+        assert_eq!(timestamp.to_rfc3339(), "2026-01-02T03:04:05+00:00");
     }
 
     #[test]

@@ -47,3 +47,40 @@ Default posture is zero-trust: protected credential reads are denied in enforce 
 - MVP targets Ubuntu 24.04 developer workstations only.
 - macOS and Windows are future ports; the initial implementation keeps backend boundaries clean but only ships the Linux backend.
 - The product prioritizes blocking credential reads over fleet management, SIEM integrations, or advanced tamper resistance in v1.
+
+## Threat Model
+
+`peperspray` is designed to reduce accidental or opportunistic credential
+exfiltration from developer workstations. The primary threats are local user
+processes, scripts, package hooks, compromised development tools, or copied
+commands that attempt to read credential files such as cloud tokens, SSH keys,
+package-manager credentials, Git credentials, and project dotenv files.
+
+The daemon is expected to run as root and enforce policy before protected read
+operations complete. A normal user process should not be able to bypass an
+enforce-mode denial by racing the CLI, editing root-owned policy files, or
+modifying root-owned logs.
+
+The MVP does not claim to defend against a fully compromised root account,
+kernel compromise, malicious firmware, or an attacker with physical access and
+disk-level control. It also does not replace secret rotation, least-privilege
+cloud IAM, sandboxing, endpoint detection, or package supply-chain controls.
+
+## MVP Limitations
+
+The first enforcement milestone is intentionally narrow:
+
+- Linux `fanotify` read enforcement is the only planned blocking backend.
+- Policy identity is based on executable path, UID, protected group, operation,
+  and optional parent executable. Stronger binary identity checks such as inode,
+  signature, or content hash matching are future hardening.
+- Path behavior around symlinks, hard links, bind mounts, file replacement, and
+  namespace boundaries must be evaluated before relying on the tool for
+  high-assurance environments.
+- Learn mode is observational. It records accesses that would be denied but does
+  not prevent credential reads.
+- If the daemon is not running, the current prototype cannot protect the host.
+  Installed failure behavior must be documented and tested before release.
+- The initial CLI writes local TOML configuration and JSONL logs. It does not
+  provide fleet policy distribution, remote attestation, central audit export,
+  or multi-user approval workflows.

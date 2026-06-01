@@ -21,6 +21,14 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Command::Learn { config } => {
+            set_mode(&config, config::Mode::Learn)?;
+        }
+
+        Command::Enforce { config } => {
+            set_mode(&config, config::Mode::Enforce)?;
+        }
+
         Command::PolicyValidate { config } => {
             let parsed_config = config::load_config(&config)
                 .with_context(|| format!("failed to load config from {}", config.display()))?;
@@ -75,13 +83,32 @@ fn main() -> anyhow::Result<()> {
         Command::Logs {
             log_file,
             last,
+            since,
             decision,
+            follow,
             json,
         } => {
+            if follow && json {
+                anyhow::bail!("--follow and --json cannot be used together");
+            }
+
+            let since = since
+                .as_deref()
+                .map(commands::logs::parse_since_timestamp)
+                .transpose()
+                .with_context(|| "--since must be an RFC3339 timestamp")?;
+
+            if follow {
+                commands::logs::follow_jsonl_log(&log_file, decision, since)
+                    .with_context(|| format!("failed to follow {}", log_file.display()))?;
+                return Ok(());
+            }
+
             let logs = logging::read_jsonl_logs(&log_file)
                 .with_context(|| format!("failed to read logs from {}", log_file.display()))?;
 
             let logs = commands::logs::filter_logs_by_decision(&logs, decision);
+            let logs = commands::logs::filter_log_refs_since(&logs, since);
             let logs = commands::logs::select_last_logs(&logs, last);
 
             if json {
@@ -120,6 +147,7 @@ fn main() -> anyhow::Result<()> {
 
         Command::PolicyReview {
             log_file,
+            min_events,
             json,
             toml,
             write_suggestions,
@@ -140,7 +168,10 @@ fn main() -> anyhow::Result<()> {
             let logs = logging::read_jsonl_logs(&log_file)
                 .with_context(|| format!("failed to read logs from {}", log_file.display()))?;
 
-            let candidates = review::build_review_candidates(&logs);
+            let candidates = review::filter_candidates_by_min_events(
+                review::build_review_candidates(&logs),
+                min_events,
+            );
 
             if let Some(path) = write_suggestions {
                 review::write_review_suggestions(&path, &candidates, force).with_context(|| {
@@ -194,16 +225,33 @@ fn main() -> anyhow::Result<()> {
         Command::Setup {
             output,
             force,
+            interactive,
             json,
         } => {
+            if interactive && json {
+                anyhow::bail!("--interactive and --json cannot be used together");
+            }
+
             let uid = setup::current_uid();
 
             let statuses = setup::detect_setup_tool_statuses();
             let tools = setup::detected_tools_from_statuses(&statuses);
+            let options = if interactive {
+                Some(setup::prompt_setup_options(&statuses)?)
+            } else {
+                None
+            };
 
-            setup::write_starter_config_with_tools(&output, uid, &tools, force).with_context(
-                || format!("failed to write starter config to {}", output.display()),
-            )?;
+            if let Some(options) = &options {
+                setup::write_starter_config_with_options(&output, uid, &tools, options, force)
+                    .with_context(|| {
+                        format!("failed to write starter config to {}", output.display())
+                    })?;
+            } else {
+                setup::write_starter_config_with_tools(&output, uid, &tools, force).with_context(
+                    || format!("failed to write starter config to {}", output.display()),
+                )?;
+            }
 
             if json {
                 let setup_output =
@@ -216,6 +264,36 @@ fn main() -> anyhow::Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+fn set_mode(config_path: &std::path::Path, mode: config::Mode) -> anyhow::Result<()> {
+    let parsed_config = config::load_config(config_path)
+        .with_context(|| format!("failed to load config from {}", config_path.display()))?;
+
+    let validation_errors = config::validate_config(&parsed_config);
+
+    if !validation_errors.is_empty() {
+        println!("Config validation failed:");
+
+        for error in validation_errors {
+            println!("- {error}");
+        }
+
+        anyhow::bail!("refusing to update invalid config");
+    }
+
+    if parsed_config.mode == mode {
+        println!("Mode is already {}.", mode);
+        return Ok(());
+    }
+
+    let backup_path = config::set_config_mode(config_path, mode.clone())
+        .with_context(|| format!("failed to update mode in config {}", config_path.display()))?;
+
+    println!("Mode set to {}.", mode);
+    println!("Backup written to {}.", backup_path.display());
 
     Ok(())
 }

@@ -121,6 +121,10 @@ fn path_matches_protected_path(
     target_path: &std::path::Path,
     protected_path: &std::path::Path,
 ) -> bool {
+    if protected_path.is_relative() {
+        return target_path.file_name() == protected_path.file_name();
+    }
+
     target_path.starts_with(protected_path)
 }
 
@@ -315,6 +319,35 @@ mod tests {
         config.allow_rules[0].operation = Some(Operation::OpenRead);
 
         let event = access_event("/usr/bin/aws", "/home/alice/.aws/credentials");
+
+        let decision = decide(&config, &event);
+
+        assert!(matches!(decision, Decision::Allow { .. }));
+    }
+
+    #[test]
+    fn protects_relative_dotenv_file_name_in_project_roots() {
+        let mut config = Config {
+            mode: Mode::Enforce,
+            users: vec![ProtectedUser {
+                uid: 1000,
+                groups: vec!["dotenv".to_string()],
+            }],
+            protected_groups: vec![ProtectedPathGroup {
+                name: "dotenv".to_string(),
+                paths: vec![PathBuf::from(".env")],
+            }],
+            allow_rules: Vec::new(),
+        };
+
+        let event = access_event("/usr/bin/python3", "/home/alice/project/.env");
+
+        let decision = decide(&config, &event);
+
+        assert!(matches!(decision, Decision::Deny { .. }));
+
+        config.protected_groups[0].paths = vec![PathBuf::from(".env.local")];
+        let event = access_event("/usr/bin/python3", "/home/alice/project/.env");
 
         let decision = decide(&config, &event);
 
