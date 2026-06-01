@@ -9,6 +9,8 @@ pub struct Config {
     pub mode: Mode,
     pub users: Vec<ProtectedUser>,
     pub protected_groups: Vec<ProtectedPathGroup>,
+
+    #[serde(default)]
     pub allow_rules: Vec<AllowRule>,
 }
 

@@ -850,36 +850,74 @@ fn current_uid() -> u32 {
 }
 
 fn starter_config_toml(uid: u32) -> String {
-    format!(
+    let tools = detect_setup_tools();
+    starter_config_toml_with_tools(uid, &tools)
+}
+
+fn starter_config_toml_with_tools(uid: u32, tools: &[DetectedTool]) -> String {
+    let protected_groups = starter_protected_groups_toml();
+    let allow_rules = starter_allow_rules_toml(uid, tools);
+
+    let mut toml = format!(
         r#"mode = "learn"
 
 [[users]]
 uid = {uid}
-groups = ["aws", "ssh"]
+groups = ["aws", "ssh", "github", "gcloud", "docker"]
 
-[[protected_groups]]
-name = "aws"
-paths = ["~/.aws"]
-
-[[protected_groups]]
-name = "ssh"
-paths = ["~/.ssh"]
-
-[[allow_rules]]
-name = "Allow AWS CLI"
-uid = {uid}
-exe = "/usr/bin/aws"
-path_group = "aws"
-operation = "open_read"
-
-[[allow_rules]]
-name = "Allow SSH client"
-uid = {uid}
-exe = "/usr/bin/ssh"
-path_group = "ssh"
-operation = "open_read"
+{protected_groups}
 "#
-    )
+    );
+
+    if !allow_rules.is_empty() {
+        toml.push('\n');
+        toml.push_str(&allow_rules);
+        toml.push('\n');
+    }
+
+    toml
+}
+
+fn starter_protected_groups_toml() -> String {
+    [
+        r#"[[protected_groups]]
+name = "aws"
+paths = ["~/.aws"]"#,
+        r#"[[protected_groups]]
+name = "ssh"
+paths = ["~/.ssh"]"#,
+        r#"[[protected_groups]]
+name = "github"
+paths = ["~/.config/gh", "~/.git-credentials", "~/.netrc"]"#,
+        r#"[[protected_groups]]
+name = "gcloud"
+paths = ["~/.config/gcloud"]"#,
+        r#"[[protected_groups]]
+name = "docker"
+paths = ["~/.docker"]"#,
+    ]
+    .join("\n\n")
+}
+
+fn starter_allow_rules_toml(uid: u32, tools: &[DetectedTool]) -> String {
+    tools
+        .iter()
+        .map(|tool| {
+            format!(
+                r#"[[allow_rules]]
+name = "{}"
+uid = {}
+exe = "{}"
+path_group = "{}"
+operation = "open_read""#,
+                tool.rule_name,
+                uid,
+                tool.exe.display(),
+                tool.path_group
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 fn write_starter_config(path: &std::path::Path, uid: u32, force: bool) -> anyhow::Result<()> {
@@ -893,6 +931,63 @@ fn write_starter_config(path: &std::path::Path, uid: u32, force: bool) -> anyhow
     std::fs::write(path, starter_config_toml(uid))?;
 
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SetupTool {
+    command: &'static str,
+    rule_name: &'static str,
+    path_group: &'static str,
+}
+
+const SETUP_TOOLS: &[SetupTool] = &[
+    SetupTool {
+        command: "aws",
+        rule_name: "Allow AWS CLI",
+        path_group: "aws",
+    },
+    SetupTool {
+        command: "ssh",
+        rule_name: "Allow SSH client",
+        path_group: "ssh",
+    },
+    SetupTool {
+        command: "gh",
+        rule_name: "Allow GitHub CLI",
+        path_group: "github",
+    },
+    SetupTool {
+        command: "gcloud",
+        rule_name: "Allow Google Cloud CLI",
+        path_group: "gcloud",
+    },
+    SetupTool {
+        command: "docker",
+        rule_name: "Allow Docker CLI",
+        path_group: "docker",
+    },
+];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DetectedTool {
+    rule_name: String,
+    exe: PathBuf,
+    path_group: String,
+}
+
+fn detect_setup_tools() -> Vec<DetectedTool> {
+    SETUP_TOOLS
+        .iter()
+        .filter_map(|tool| {
+            let exe = which::which(tool.command).ok()?;
+
+            Some(DetectedTool {
+                rule_name: tool.rule_name.to_string(),
+                exe: paths::normalize_path(&exe),
+                path_group: tool.path_group.to_string(),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1375,25 +1470,46 @@ mod tests {
 
     #[test]
     fn starter_config_contains_uid_and_default_groups() {
-        let toml = starter_config_toml(1000);
+        let tools = [
+            DetectedTool {
+                rule_name: "Allow AWS CLI".to_string(),
+                exe: PathBuf::from("/usr/bin/aws"),
+                path_group: "aws".to_string(),
+            },
+            DetectedTool {
+                rule_name: "Allow SSH client".to_string(),
+                exe: PathBuf::from("/usr/bin/ssh"),
+                path_group: "ssh".to_string(),
+            },
+        ];
+
+        let toml = starter_config_toml_with_tools(1000, &tools);
 
         assert!(toml.contains("uid = 1000"));
-        assert!(toml.contains("groups = [\"aws\", \"ssh\"]"));
+        assert!(toml.contains("groups = [\"aws\", \"ssh\", \"github\", \"gcloud\", \"docker\"]"));
         assert!(toml.contains("paths = [\"~/.aws\"]"));
         assert!(toml.contains("paths = [\"~/.ssh\"]"));
+        assert!(toml.contains("name = \"Allow AWS CLI\""));
+        assert!(toml.contains("name = \"Allow SSH client\""));
         assert!(toml.contains("operation = \"open_read\""));
     }
 
     #[test]
     fn starter_config_parses_as_config() {
-        let toml = starter_config_toml(1000);
+        let tools = [DetectedTool {
+            rule_name: "Allow SSH client".to_string(),
+            exe: PathBuf::from("/usr/bin/ssh"),
+            path_group: "ssh".to_string(),
+        }];
+
+        let toml = starter_config_toml_with_tools(1000, &tools);
 
         let config: config::Config = toml::from_str(&toml).expect("starter config should parse");
 
         assert_eq!(config.mode, config::Mode::Learn);
         assert_eq!(config.users.len(), 1);
-        assert_eq!(config.protected_groups.len(), 2);
-        assert_eq!(config.allow_rules.len(), 2);
+        assert_eq!(config.protected_groups.len(), 5);
+        assert_eq!(config.allow_rules.len(), 1);
     }
 
     #[test]
@@ -1434,5 +1550,17 @@ mod tests {
 
         assert!(contents.contains("mode = \"learn\""));
         assert!(!contents.contains("old contents"));
+    }
+
+    #[test]
+    fn starter_config_allows_no_detected_tools() {
+        let tools = [];
+
+        let toml = starter_config_toml_with_tools(1000, &tools);
+
+        let config: config::Config = toml::from_str(&toml).expect("starter config should parse");
+
+        assert_eq!(config.allow_rules.len(), 0);
+        assert!(toml.contains("groups = [\"aws\", \"ssh\", \"github\", \"gcloud\", \"docker\"]"));
     }
 }
