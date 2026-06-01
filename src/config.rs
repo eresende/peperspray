@@ -1,3 +1,4 @@
+use crate::event::Operation;
 use crate::paths;
 use serde::Deserialize;
 use std::fs;
@@ -39,6 +40,9 @@ pub struct AllowRule {
 
     #[serde(default)]
     pub parent_exe: Option<PathBuf>,
+
+    #[serde(default)]
+    pub operation: Option<Operation>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -47,6 +51,7 @@ struct AllowRuleBehaviorKey<'a> {
     exe: &'a PathBuf,
     path_group: &'a str,
     parent_exe: Option<&'a PathBuf>,
+    operation: Option<Operation>,
 }
 
 pub fn load_config(path: &Path) -> anyhow::Result<Config> {
@@ -133,18 +138,22 @@ fn validate_duplicate_allow_rule_behavior(config: &Config, errors: &mut Vec<Stri
             exe: &rule.exe,
             path_group: &rule.path_group,
             parent_exe: rule.parent_exe.as_ref(),
+            operation: rule.operation,
         };
 
         if !seen.insert(key) {
             errors.push(format!(
-                "duplicate allow rule behavior: uid {}, exe '{}', path_group '{}', parent_exe '{}'",
+                "duplicate allow rule behavior: uid {}, exe '{}', path_group '{}', parent_exe '{}', operation '{}'",
                 rule.uid,
                 rule.exe.display(),
                 rule.path_group,
                 rule.parent_exe
                     .as_ref()
                     .map(|path| path.display().to_string())
-                    .unwrap_or_else(|| "<none>".to_string())
+                    .unwrap_or_else(|| "<none>".to_string()),
+                rule.operation
+                    .map(|operation| operation.to_string())
+                    .unwrap_or_else(|| "<any>".to_string())
             ));
         }
     }
@@ -187,6 +196,7 @@ mod tests {
                 exe: PathBuf::from("/usr/bin/aws"),
                 path_group: "aws".to_string(),
                 parent_exe: None,
+                operation: None,
             }],
         }
     }
@@ -247,6 +257,7 @@ mod tests {
             exe: PathBuf::from("/usr/local/bin/aws"),
             path_group: "aws".to_string(),
             parent_exe: None,
+            operation: None,
         });
 
         let errors = validate_config(&config);
@@ -266,6 +277,7 @@ mod tests {
             exe: PathBuf::from("/usr/bin/aws"),
             path_group: "aws".to_string(),
             parent_exe: None,
+            operation: None,
         });
 
         let errors = validate_config(&config);
@@ -291,5 +303,31 @@ mod tests {
             PathBuf::from("/home/alice/.aws")
         );
         assert_eq!(config.allow_rules[0].exe, PathBuf::from("/missing/bin/aws"));
+    }
+
+    #[test]
+    fn parses_allow_rule_operation() {
+        let toml = r#"
+mode = "enforce"
+
+[[users]]
+uid = 1000
+groups = ["aws"]
+
+[[protected_groups]]
+name = "aws"
+paths = ["/home/alice/.aws"]
+
+[[allow_rules]]
+name = "Allow AWS CLI"
+uid = 1000
+exe = "/usr/bin/aws"
+path_group = "aws"
+operation = "open_read"
+"#;
+
+        let config: Config = toml::from_str(toml).expect("config should parse");
+
+        assert_eq!(config.allow_rules[0].operation, Some(Operation::OpenRead));
     }
 }

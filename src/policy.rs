@@ -101,6 +101,12 @@ fn allow_rule_matches(rule: &AllowRule, event: &AccessEvent, matched_group: &str
         return false;
     }
 
+    if let Some(operation) = rule.operation
+        && operation != event.operation
+    {
+        return false;
+    }
+
     if let Some(parent_exe) = &rule.parent_exe {
         return event
             .parent_chain
@@ -153,6 +159,7 @@ mod tests {
                 exe: PathBuf::from("/usr/bin/aws"),
                 path_group: "aws".to_string(),
                 parent_exe: None,
+                operation: None,
             }],
         }
     }
@@ -295,6 +302,19 @@ mod tests {
         let config = sample_config(Mode::Enforce);
 
         let event = access_event("/usr/bin/python3", "/home/alice/.aws2/credentials");
+
+        let decision = decide(&config, &event);
+
+        assert!(matches!(decision, Decision::Allow { .. }));
+    }
+
+    #[test]
+    fn allows_rule_when_operation_matches() {
+        let mut config = sample_config(Mode::Enforce);
+
+        config.allow_rules[0].operation = Some(Operation::OpenRead);
+
+        let event = access_event("/usr/bin/aws", "/home/alice/.aws/credentials");
 
         let decision = decide(&config, &event);
 

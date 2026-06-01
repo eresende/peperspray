@@ -353,7 +353,7 @@ fn print_log_entry(log: &logging::OwnedDecisionLog) {
     );
 
     println!("  event_id: {}", log.event_id);
-    println!("  operation: {:?}", log.operation);
+    println!("  operation: {}", log.operation);
     println!("  reason: {}", log.reason);
     println!();
 }
@@ -457,7 +457,7 @@ fn print_log_detail(log: &logging::OwnedDecisionLog) {
     }
 
     println!("Target:      {}", log.target_path.display());
-    println!("Operation:   {:?}", log.operation);
+    println!("Operation:   {}", log.operation);
     println!();
     println!("Reason:");
     println!("  {}", log.reason);
@@ -604,11 +604,12 @@ fn print_review_candidates_json(candidates: &[ReviewCandidate]) -> anyhow::Resul
 
 fn candidate_to_toml(candidate: &ReviewCandidate) -> String {
     let mut toml = format!(
-        "[[allow_rules]]\nname = \"{}\"\nuid = {}\nexe = \"{}\"\npath_group = \"{}\"",
+        "[[allow_rules]]\nname = \"{}\"\nuid = {}\nexe = \"{}\"\npath_group = \"{}\"\noperation = \"{}\"",
         suggested_allow_rule_name(candidate),
         candidate.key.uid,
         candidate.key.exe.display(),
-        candidate.key.path_group
+        candidate.key.path_group,
+        Operation::OpenRead
     );
 
     if let Some(parent_exe) = &candidate.key.parent_exe {
@@ -958,6 +959,7 @@ mod tests {
         assert!(toml.contains("uid = 1000"));
         assert!(toml.contains("exe = \"/usr/bin/python3\""));
         assert!(toml.contains("path_group = \"aws\""));
+        assert!(toml.contains("operation = \"open_read\""));
     }
 
     #[test]
@@ -1134,6 +1136,7 @@ mod tests {
 
         assert!(toml.contains("parent_exe = \"/usr/bin/zsh\""));
         assert!(toml.contains("name = \"Allow python3 to access aws from zsh\""));
+        assert!(toml.contains("operation = \"open_read\""));
     }
 
     #[test]
