@@ -8,6 +8,8 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
+pub const FANOTIFY_PERMISSION_MASK: u64 = libc::FAN_OPEN_PERM | libc::FAN_EVENT_ON_CHILD;
+
 #[derive(Debug)]
 pub struct FanotifyProbe {
     fd: OwnedFd,
@@ -16,6 +18,26 @@ pub struct FanotifyProbe {
 impl FanotifyProbe {
     pub fn raw_fd(&self) -> i32 {
         self.fd.as_raw_fd()
+    }
+
+    pub fn read_permission_events(&self) -> anyhow::Result<Vec<FanotifyPermissionEvent>> {
+        let mut buffer = [0_u8; 8192];
+        let bytes_read =
+            unsafe { libc::read(self.raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) };
+
+        if bytes_read < 0 {
+            let error = std::io::Error::last_os_error();
+
+            if error.kind() == std::io::ErrorKind::WouldBlock {
+                return Ok(Vec::new());
+            }
+
+            return Err(Into::into(error));
+        }
+
+        Ok(permission_events_from_buffer(
+            &buffer[..bytes_read.try_into()?],
+        ))
     }
 }
 
@@ -34,7 +56,7 @@ pub fn probe_path(path: &Path) -> anyhow::Result<FanotifyProbe> {
         libc::fanotify_mark(
             fanotify_fd.as_raw_fd(),
             libc::FAN_MARK_ADD,
-            libc::FAN_OPEN_PERM,
+            FANOTIFY_PERMISSION_MASK,
             libc::AT_FDCWD,
             path.as_ptr(),
         )
@@ -45,6 +67,36 @@ pub fn probe_path(path: &Path) -> anyhow::Result<FanotifyProbe> {
     }
 
     Ok(FanotifyProbe { fd: fanotify_fd })
+}
+
+pub fn permission_events_from_buffer(buffer: &[u8]) -> Vec<FanotifyPermissionEvent> {
+    let metadata_size = std::mem::size_of::<libc::fanotify_event_metadata>();
+    let mut events = Vec::new();
+    let mut offset = 0;
+
+    while offset + metadata_size <= buffer.len() {
+        let metadata = unsafe {
+            std::ptr::read_unaligned(
+                buffer[offset..]
+                    .as_ptr()
+                    .cast::<libc::fanotify_event_metadata>(),
+            )
+        };
+
+        let event_len = metadata.event_len as usize;
+
+        if event_len < metadata_size || offset + event_len > buffer.len() {
+            break;
+        }
+
+        if let Some(event) = permission_event_from_metadata(&metadata) {
+            events.push(event);
+        }
+
+        offset += event_len;
+    }
+
+    events
 }
 
 pub fn permission_event_from_metadata(
@@ -94,9 +146,35 @@ pub fn respond_to_permission_event(
     event: &FanotifyPermissionEvent,
     decision: &Decision,
 ) -> anyhow::Result<()> {
+    write_permission_response(
+        fanotify_fd,
+        event.target_fd,
+        response_code_for_decision(decision),
+    )
+}
+
+pub fn deny_permission_event(
+    fanotify_fd: RawFd,
+    event: &FanotifyPermissionEvent,
+) -> anyhow::Result<()> {
+    write_permission_response(fanotify_fd, event.target_fd, libc::FAN_DENY)
+}
+
+fn response_code_for_decision(decision: &Decision) -> u32 {
+    match decision {
+        Decision::Allow { .. } => libc::FAN_ALLOW,
+        Decision::Deny { .. } => libc::FAN_DENY,
+    }
+}
+
+fn write_permission_response(
+    fanotify_fd: RawFd,
+    target_fd: RawFd,
+    response_code: u32,
+) -> anyhow::Result<()> {
     let response = libc::fanotify_response {
-        fd: event.target_fd,
-        response: response_code_for_decision(decision),
+        fd: target_fd,
+        response: response_code,
     };
 
     let bytes_written = unsafe {
@@ -114,11 +192,14 @@ pub fn respond_to_permission_event(
     Ok(())
 }
 
-fn response_code_for_decision(decision: &Decision) -> u32 {
-    match decision {
-        Decision::Allow { .. } => libc::FAN_ALLOW,
-        Decision::Deny { .. } => libc::FAN_DENY,
+pub fn close_permission_event_fd(event: &FanotifyPermissionEvent) -> anyhow::Result<()> {
+    let result = unsafe { libc::close(event.target_fd) };
+
+    if result < 0 {
+        return Err(Into::into(std::io::Error::last_os_error()));
     }
+
+    Ok(())
 }
 
 fn fanotify_init() -> anyhow::Result<OwnedFd> {
@@ -172,6 +253,55 @@ mod tests {
         };
 
         assert!(permission_event_from_metadata(&metadata).is_none());
+    }
+
+    #[test]
+    fn permission_events_from_buffer_parses_multiple_metadata_entries() {
+        let first = libc::fanotify_event_metadata {
+            event_len: std::mem::size_of::<libc::fanotify_event_metadata>() as u32,
+            vers: libc::FANOTIFY_METADATA_VERSION,
+            reserved: 0,
+            metadata_len: std::mem::size_of::<libc::fanotify_event_metadata>() as u16,
+            mask: libc::FAN_OPEN_PERM,
+            fd: 10,
+            pid: 1234,
+        };
+        let second = libc::fanotify_event_metadata {
+            event_len: std::mem::size_of::<libc::fanotify_event_metadata>() as u32,
+            vers: libc::FANOTIFY_METADATA_VERSION,
+            reserved: 0,
+            metadata_len: std::mem::size_of::<libc::fanotify_event_metadata>() as u16,
+            mask: libc::FAN_OPEN_PERM,
+            fd: 11,
+            pid: 1235,
+        };
+
+        let mut buffer = Vec::new();
+        buffer.extend_from_slice(unsafe {
+            std::slice::from_raw_parts(
+                std::ptr::addr_of!(first).cast::<u8>(),
+                std::mem::size_of::<libc::fanotify_event_metadata>(),
+            )
+        });
+        buffer.extend_from_slice(unsafe {
+            std::slice::from_raw_parts(
+                std::ptr::addr_of!(second).cast::<u8>(),
+                std::mem::size_of::<libc::fanotify_event_metadata>(),
+            )
+        });
+
+        let events = permission_events_from_buffer(&buffer);
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].target_fd, 10);
+        assert_eq!(events[1].target_fd, 11);
+    }
+
+    #[test]
+    fn permission_events_from_buffer_ignores_truncated_metadata() {
+        let buffer = vec![0_u8; std::mem::size_of::<libc::fanotify_event_metadata>() - 1];
+
+        assert!(permission_events_from_buffer(&buffer).is_empty());
     }
 
     #[test]

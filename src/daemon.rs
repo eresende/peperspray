@@ -17,6 +17,7 @@ pub struct DaemonOptions {
     pub log_file: PathBuf,
     pub check_only: bool,
     pub fanotify_probe: Option<PathBuf>,
+    pub fanotify_path: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -80,6 +81,11 @@ pub fn run(options: DaemonOptions) -> anyhow::Result<()> {
         );
     }
 
+    if let Some(path) = &options.fanotify_path {
+        run_fanotify_loop(path, &loaded.config, &options.log_file)?;
+        return Ok(());
+    }
+
     if options.check_only {
         println!(
             "Daemon config is valid. users={} groups={} allow_rules={}",
@@ -96,6 +102,53 @@ pub fn run(options: DaemonOptions) -> anyhow::Result<()> {
 
     loop {
         thread::sleep(Duration::from_secs(60));
+    }
+}
+
+fn run_fanotify_loop(path: &Path, config: &config::Config, log_file: &Path) -> anyhow::Result<()> {
+    let fanotify = fanotify::probe_path(path)
+        .with_context(|| format!("failed to initialize fanotify loop for {}", path.display()))?;
+
+    append_lifecycle_log(
+        log_file,
+        DaemonLog::new(
+            "info",
+            format!(
+                "fanotify loop started fd {} for {}",
+                fanotify.raw_fd(),
+                path.display()
+            ),
+        ),
+    )?;
+
+    println!("fanotify loop started for {}", path.display());
+
+    loop {
+        let events = fanotify.read_permission_events()?;
+
+        if events.is_empty() {
+            thread::sleep(Duration::from_millis(50));
+            continue;
+        }
+
+        for event in events {
+            if let Err(error) = handle_permission_event(fanotify.raw_fd(), config, log_file, &event)
+            {
+                let _ = fanotify::deny_permission_event(fanotify.raw_fd(), &event);
+                let _ = append_lifecycle_log(
+                    log_file,
+                    DaemonLog::new(
+                        "error",
+                        format!(
+                            "failed to handle fanotify permission event pid={} fd={}: {error}",
+                            event.pid, event.target_fd
+                        ),
+                    ),
+                );
+            }
+
+            let _ = fanotify::close_permission_event_fd(&event);
+        }
     }
 }
 

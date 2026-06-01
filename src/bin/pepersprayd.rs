@@ -17,8 +17,11 @@ struct Cli {
     #[arg(long)]
     check: bool,
 
-    #[arg(long)]
+    #[arg(long, conflicts_with = "fanotify_path")]
     fanotify_probe: Option<PathBuf>,
+
+    #[arg(long, conflicts_with = "check")]
+    fanotify_path: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -29,5 +32,6 @@ fn main() -> anyhow::Result<()> {
         log_file: cli.log_file,
         check_only: cli.check,
         fanotify_probe: cli.fanotify_probe,
+        fanotify_path: cli.fanotify_path,
     })
 }

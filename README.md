@@ -84,14 +84,12 @@ Implemented policy and CLI capabilities:
   project dotenv files
 - Split CLI/library layout with `peperspray` and `pepersprayd` binaries
 - Minimal `pepersprayd` skeleton with config validation and lifecycle JSONL logs
-- Initial `fanotify` permission-event conversion and FAN_ALLOW/FAN_DENY response
-  helpers
+- Experimental `fanotify` permission-event loop, event conversion, decision
+  logging, and FAN_ALLOW/FAN_DENY responses
 
 Not implemented yet:
 
-- full root daemon enforcement loop
-- privileged Linux `fanotify` read-loop integration
-- real file-read blocking
+- privileged Linux integration tests proving real read blocking
 - installation layout under `/etc/peperspray/` and `/var/log/peperspray/`
 - `.deb` packaging
 - installed `systemd` service management
@@ -275,8 +273,8 @@ Installed-mode defaults are `/etc/peperspray/config.toml` and
 `/var/log/peperspray/events.jsonl`. The repository also includes a starter
 systemd unit at `packaging/systemd/pepersprayd.service`.
 
-The experimental fanotify probe initializes a permission-event mark but does not
-start the full enforcement loop yet:
+The experimental fanotify probe initializes a permission-event mark without
+starting the full loop:
 
 ```sh
 cargo run --bin pepersprayd -- \
@@ -285,6 +283,20 @@ cargo run --bin pepersprayd -- \
   --check \
   --fanotify-probe /path/to/protect
 ```
+
+The experimental fanotify loop reads `FAN_OPEN_PERM` events, converts each event
+into an `AccessEvent`, evaluates policy, appends a JSONL decision log, and writes
+`FAN_ALLOW` or `FAN_DENY` back to the kernel:
+
+```sh
+sudo target/debug/pepersprayd \
+  --config ./generated-config.toml \
+  --log-file ./events.jsonl \
+  --fanotify-path /path/to/protect
+```
+
+This path still needs privileged Linux integration tests before it should be
+treated as host protection.
 
 ### Show policy status
 
@@ -481,22 +493,22 @@ logging, setup, status, and review behavior remains easier to test in isolation.
 
 Suggested next milestones:
 
-1. Add a privileged daemon fanotify event loop.
-2. Add integration tests for protected temporary files on Linux.
-3. Add installed service management commands.
-4. Add `/etc/peperspray/config.toml` and `/var/log/peperspray/events.jsonl`
+1. Add integration tests for protected temporary files on Linux.
+2. Add installed service management commands.
+3. Add `/etc/peperspray/config.toml` and `/var/log/peperspray/events.jsonl`
     defaults for installed mode.
-5. Add `.deb` packaging.
-6. Add uninstall/purge behavior.
-7. Evaluate symlink, hard-link, bind-mount, and file-replacement behavior.
-8. Add optional binary identity hardening, such as inode or hash matching.
-9. Add desktop notification or `why last` UX.
-10. Add release documentation.
+4. Add `.deb` packaging.
+5. Add uninstall/purge behavior.
+6. Evaluate symlink, hard-link, bind-mount, and file-replacement behavior.
+7. Add optional binary identity hardening, such as inode or hash matching.
+8. Add desktop notification or `why last` UX.
+9. Add release documentation.
 
 ## Current MVP Boundary
 
-The current prototype is useful for developing and testing the policy model, but
-it does not protect the host yet.
+The current prototype is useful for developing and testing the policy model and
+has an experimental Linux `fanotify` loop, but it is not yet validated as host
+protection.
 
 It can answer:
 
@@ -504,14 +516,14 @@ It can answer:
 Would this access be allowed or denied by the policy?
 ```
 
-It cannot yet enforce:
+The experimental daemon path is intended to enforce:
 
 ```text
 Block this real process before it reads the file.
 ```
 
-That enforcement boundary starts when the daemon and `fanotify` backend are
-implemented.
+That boundary still needs privileged Linux integration tests, installed service
+management, and packaging before it should be treated as reliable protection.
 
 ## License
 

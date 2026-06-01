@@ -38,15 +38,15 @@ Default posture is zero-trust: protected credential reads are denied in enforce 
 
 ## Implementation Staging
 
-The current daemon implementation is a non-enforcing skeleton. It can load and
-validate daemon configuration, write lifecycle JSONL logs, initialize a
-fanotify permission-event probe, convert `FAN_OPEN_PERM` metadata into the
-portable `AccessEvent` model, and map policy decisions to `FAN_ALLOW` or
-`FAN_DENY` responses.
+The current daemon implementation is experimental. It can load and validate
+daemon configuration, write lifecycle JSONL logs, initialize a fanotify
+permission-event probe, run a fanotify loop for one marked path, convert
+`FAN_OPEN_PERM` metadata into the portable `AccessEvent` model, and map policy
+decisions to `FAN_ALLOW` or `FAN_DENY` responses.
 
-The remaining enforcement step is a privileged read loop that receives
-fanotify events, calls the existing permission-event handler, and proves
-allowed/denied reads with Linux integration tests.
+The remaining enforcement proof is a privileged Linux integration test that
+starts the daemon against temporary protected files and proves allowed/denied
+reads end to end.
 
 Failure behavior is tracked separately in
 [FAILURE_BEHAVIOR.md](FAILURE_BEHAVIOR.md).
