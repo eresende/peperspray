@@ -3,13 +3,14 @@
 `peperspray` is a Linux-first credential access guard for developer
 workstations.
 
-The planned MVP is a root-owned daemon that uses Linux `fanotify` permission
+The current MVP is a root-owned daemon that uses Linux `fanotify` permission
 events to detect protected credential-file reads and block them before they
 complete unless an explicit policy rule allows the access.
 
-This repository is currently a **policy and CLI prototype**. It does not yet
-perform host-level enforcement, but it already implements most of the portable
-core that the future daemon will use:
+This repository is currently a **personal production / dogfood MVP** for Ubuntu
+24.04 developer workstations. It includes host-level read enforcement, packaging,
+service management, logs, policy review, and desktop notifications, while still
+carrying documented hardening gaps around path identity and tamper resistance:
 
 - TOML configuration parsing and logical validation
 - protected users and protected credential path groups
@@ -23,15 +24,15 @@ core that the future daemon will use:
 - learned-access review and suggested allow-rule generation
 - starter and interactive config generation through `setup`
 - human and JSON status output
-
-The daemon, Linux `fanotify` backend, `systemd` service, `.deb` packaging, and
-real read blocking are not implemented yet.
+- root-owned Linux daemon with `fanotify` read enforcement
+- `.deb` packaging, systemd service, log rotation, and denied-access desktop
+  notifications
 
 ## Design Target
 
 The target product is described in [docs/SPEC.md](docs/SPEC.md). In short:
 
-- `pepersprayd` will run as a root-owned `systemd` service on Ubuntu 24.04.
+- `pepersprayd` runs as a root-owned `systemd` service on Ubuntu 24.04.
 - `peperspray` will manage setup, status, modes, logs, testing, and policy
   review.
 - Default posture is zero-trust in enforce mode: protected credential reads are
@@ -87,15 +88,18 @@ Implemented policy and CLI capabilities:
 - Expanded protected presets for npm, Ansible Vault, Git credentials, and
   project dotenv files
 - Split CLI/library layout with `peperspray` and `pepersprayd` binaries
-- Minimal `pepersprayd` skeleton with config validation and lifecycle JSONL logs
-- Experimental `fanotify` permission-event loop, event conversion, decision
-  logging, and FAN_ALLOW/FAN_DENY responses
+- `pepersprayd` daemon with config validation, lifecycle JSONL logs, fanotify
+  marks, and policy enforcement
+- Linux `fanotify` permission-event loop, event conversion, decision logging,
+  and FAN_ALLOW/FAN_DENY responses
 - Privileged fanotify integration tests proving learn/enforce read behavior on
   Ubuntu 24.04
 - Service management wrappers around `systemctl`
 - Installed-layout scaffolding under `packaging/`
 - Local `.deb` package build script and Debian maintainer scripts
 - Remove/purge behavior for the installed service, config, and runtime log
+- Installed logrotate policy for runtime log retention
+- Best-effort desktop notifications for denied reads with in-memory throttling
 - QEMU/KVM package lifecycle test for install, service startup, remove, and
   purge on Ubuntu 24.04
 - Documented path semantics and known hard-link/bind-mount limitations
@@ -108,8 +112,8 @@ Not implemented yet:
 
 - Rust toolchain with Cargo
 - Linux is the intended platform
-- The current CLI prototype reads Linux `/proc` for process inspection, but it
-  does not require root privileges for normal simulated policy tests
+- The CLI can run normal simulated policy tests without root privileges.
+- Host enforcement requires a root-owned daemon with Linux fanotify support.
 
 ## Build, Test, and Lint
 
@@ -536,7 +540,7 @@ The current code is organized around the planned backend split:
 - `src/config.rs`: config types, loading, normalization, and validation
 - `src/daemon.rs`: daemon config validation, lifecycle logging, and event handler
 - `src/event.rs`: access-event model and operation type
-- `src/fanotify.rs`: Linux `fanotify` proof-of-concept helpers
+- `src/fanotify.rs`: Linux `fanotify` permission-event helpers
 - `src/policy.rs`: policy decision engine
 - `src/logging.rs`: decision log serialization and JSONL helpers
 - `src/paths.rs`: path normalization and `~` expansion helpers
@@ -553,7 +557,7 @@ The current code is organized around the planned backend split:
 - `packaging/build-deb.sh`: local `.deb` package builder
 - `packaging/qemu-test-deb.sh`: QEMU/KVM package lifecycle smoke test
 - `packaging/deb/`: Debian metadata and maintainer scripts
-- `packaging/systemd/pepersprayd.service`: starter systemd unit
+- `packaging/systemd/pepersprayd.service`: installed systemd unit
 - `docs/QEMU_PACKAGE_TESTING.md`: QEMU/KVM package validation guide
 - `docs/FAILURE_BEHAVIOR.md`: intended failure behavior for MVP hardening
 - `docs/PATH_SEMANTICS.md`: current path behavior and hardening gaps
@@ -567,14 +571,14 @@ Suggested next milestones:
 
 1. Add optional binary identity hardening, such as inode or hash matching.
 2. Add bind-mount and namespace integration tests.
-3. Add desktop notification or `why last` UX.
+3. Add `why last` UX.
 4. Add release documentation.
 
 ## Current MVP Boundary
 
-The current prototype is useful for developing and testing the policy model and
-has a Linux `fanotify` loop validated by privileged Ubuntu 24.04 integration
-tests, but it still has documented path-identity limitations.
+The current MVP is useful for personal production / dogfooding on Ubuntu 24.04
+and has a Linux `fanotify` loop validated by privileged integration tests, but
+it still has documented path-identity limitations.
 
 It can answer:
 
@@ -582,15 +586,15 @@ It can answer:
 Would this access be allowed or denied by the policy?
 ```
 
-The experimental daemon path is intended to enforce:
+The daemon path can enforce:
 
 ```text
 Block this real process before it reads the file.
 ```
 
-That boundary still needs path-identity hardening, especially around hard links,
-bind mounts, and mount namespaces, before it should be treated as reliable
-protection.
+That boundary is suitable for personal dogfooding, but still needs path-identity
+hardening, especially around hard links, bind mounts, and mount namespaces,
+before it should be treated as high-assurance protection.
 
 ## License
 

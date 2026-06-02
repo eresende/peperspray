@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 #[command(name = "pepersprayd")]
-#[command(about = "Credential access guard daemon skeleton.")]
+#[command(about = "Credential access guard daemon.")]
 struct Cli {
     #[arg(long, default_value = DEFAULT_DAEMON_CONFIG_PATH)]
     config: PathBuf,

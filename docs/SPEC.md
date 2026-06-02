@@ -13,6 +13,8 @@ Default posture is zero-trust: protected credential reads are denied in enforce 
 - Core logic is platform-neutral: policy parsing, access decisions, process metadata, logs, and CLI models.
 - Linux backend translates `fanotify` events into generic access events: PID, UID, executable, cmdline, cwd, parent chain, target path, and operation.
 - Config lives at `/etc/peperspray/config.toml`; logs live under `/var/log/peperspray/` with root-owned permissions.
+- Installed packages include log rotation for runtime logs and best-effort
+  desktop notifications for denied reads.
 
 ## Policy Behavior
 
@@ -38,11 +40,15 @@ Default posture is zero-trust: protected credential reads are denied in enforce 
 
 ## Implementation Staging
 
-The current daemon implementation is experimental. It can load and validate
-daemon configuration, write lifecycle JSONL logs, initialize a fanotify
-permission-event probe, run a fanotify loop for one marked path, convert
-`FAN_OPEN_PERM` metadata into the portable `AccessEvent` model, and map policy
-decisions to `FAN_ALLOW` or `FAN_DENY` responses.
+The current daemon implementation can load and validate daemon configuration,
+write lifecycle JSONL logs, initialize a fanotify permission-event probe, mark
+existing protected paths from the config, convert `FAN_OPEN_PERM` metadata into
+the portable `AccessEvent` model, and map policy decisions to `FAN_ALLOW` or
+`FAN_DENY` responses.
+
+In enforce mode, denied reads trigger best-effort desktop notifications through
+the user's session bus when `notify-send` is available. Notifications are
+throttled per user, executable, protected group, and operation for five minutes.
 
 Privileged Linux integration tests on Ubuntu 24.04 start the daemon against
 temporary protected files and prove allowed/denied reads end to end.
@@ -58,7 +64,9 @@ Path behavior and known identity limitations are tracked in
 - Unit-test policy matching for allowlist-first behavior, protected path expansion, process ancestry, and mode-specific decisions.
 - Integration-test Linux backend with temporary protected files to prove reads are allowed in learn mode and denied in enforce mode.
 - Verify logs contain executable, cmdline, cwd, parent chain, target path, decision, reason, datetime, and denied-event process snapshots.
-- Package-test `.deb` install, `systemd` startup, config permissions, log permissions, and clean uninstall behavior on Ubuntu 24.04.
+- Package-test `.deb` install, `systemd` startup, config permissions, log
+  permissions, logrotate policy, service metadata, and clean uninstall behavior
+  on Ubuntu 24.04.
 
 ## Assumptions
 

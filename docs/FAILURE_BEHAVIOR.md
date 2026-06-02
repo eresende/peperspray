@@ -1,20 +1,21 @@
 # Failure Behavior
 
 This document records intended failure behavior for the MVP. The current daemon
-is still a non-enforcing skeleton, so enforcement-specific behavior must be
-proved by the future privileged fanotify integration tests.
+has a Linux fanotify enforcement loop with privileged integration coverage on
+Ubuntu 24.04, but it still has personal-production hardening gaps documented in
+`PATH_SEMANTICS.md`.
 
 ## Daemon Crash
 
 Installed mode should run `pepersprayd` under systemd with `Restart=on-failure`.
-If the daemon crashes before enforcement is complete, protected reads are not
-blocked by the prototype. The daemon should write a startup lifecycle log after
-config validation so operators can distinguish "never started" from "started
-then crashed".
+If the daemon crashes, protected reads are no longer blocked until systemd
+restarts it and the fanotify marks are re-established. The daemon writes startup
+lifecycle logs after config validation and after the fanotify loop starts so
+operators can distinguish "never started" from "started then crashed".
 
-Future enforcement mode must explicitly decide whether daemon failure is
-fail-open or fail-closed for each protected mount/user scope. That decision is
-not implemented yet.
+Current daemon failure is effectively fail-open while the process is down. A
+future hardening milestone should decide whether fail-closed behavior is
+possible and acceptable for each protected mount/user scope.
 
 ## Config Parse Or Validation Failure
 
@@ -31,18 +32,17 @@ Expected behavior:
 ## Log Write Failure
 
 Decision logs and daemon lifecycle logs are part of the audit trail. If the
-daemon cannot append a log entry during startup, it currently returns an error.
-For future enforcement, the project must choose and test whether log-write
-failure blocks access decisions or allows policy evaluation to continue with a
-visible degraded state.
+daemon cannot append a log entry during startup, it returns an error. During
+event handling, log write failure is treated as a handling failure and the daemon
+attempts to deny the permission event. Notification failures are not treated as
+policy failures; they are written as daemon lifecycle warnings when possible.
 
 ## Process Metadata Lookup Failure
 
 The policy engine expects UID, executable path, cwd, cmdline, and parent chain
 metadata when converting a real fanotify event into an `AccessEvent`. If process
-metadata cannot be read from `/proc`, the future enforcement loop should record
-that failure and deny protected reads in enforce mode unless a deliberate
-fail-open policy is added.
+metadata cannot be read from `/proc`, event handling fails and the daemon
+attempts to deny the permission event.
 
 ## Fanotify Setup Failure
 
