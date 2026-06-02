@@ -9,6 +9,7 @@ fn debian_control_declares_package_metadata() {
     assert!(control.contains("Version: 0.1.0"));
     assert!(control.contains("Architecture: amd64"));
     assert!(control.contains("Depends: systemd, logrotate"));
+    assert!(control.contains("Recommends: libnotify-bin"));
 }
 
 #[test]

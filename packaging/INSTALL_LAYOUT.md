@@ -29,6 +29,11 @@ It rotates daily, rotates early at 10 MiB, keeps 14 rotations, compresses older
 logs, and uses `copytruncate` so the daemon does not need signal-based log
 reopen support.
 
+The package recommends `libnotify-bin` so `pepersprayd` can send best-effort
+desktop notifications for denied reads with `notify-send`. Notifications are
+throttled in memory by user, executable, protected group, and operation for five
+minutes.
+
 ## Package Lifecycle
 
 Build a local package with:

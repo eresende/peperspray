@@ -310,6 +310,12 @@ When `--fanotify-path` is omitted, the daemon uses existing absolute paths from
 `protected_groups`. Missing paths and relative filename presets such as `.env`
 are skipped by the fanotify marker.
 
+In enforce mode, denied reads trigger best-effort desktop notifications via
+`notify-send` when the user's session bus is available. Notifications are
+throttled per user, executable, protected group, and operation for five minutes
+to avoid repeated popups from noisy tools. Denies are still blocked and logged
+if desktop notifications are unavailable.
+
 To run the ignored privileged fanotify tests on a Linux host:
 
 ```sh

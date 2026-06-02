@@ -5,6 +5,7 @@ pub mod daemon;
 pub mod event;
 pub mod fanotify;
 pub mod logging;
+pub mod notifications;
 pub mod paths;
 pub mod policy;
 pub mod process;

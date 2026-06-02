@@ -5,6 +5,7 @@ Priority: optional
 Architecture: amd64
 Maintainer: peperspray maintainers
 Depends: systemd, logrotate
+Recommends: libnotify-bin
 Description: Linux credential access guard for developer workstations
  peperspray is a Linux-first credential access guard. The package installs the
  peperspray CLI, the pepersprayd daemon, a systemd unit, and a starter policy

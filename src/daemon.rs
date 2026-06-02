@@ -2,6 +2,7 @@ use crate::config;
 use crate::fanotify;
 use crate::fanotify::FanotifyPermissionEvent;
 use crate::logging::{self, DaemonLog};
+use crate::notifications::{DenyNotifier, NotificationStatus};
 use crate::policy;
 use anyhow::Context;
 use std::collections::BTreeSet;
@@ -153,6 +154,8 @@ fn run_fanotify_loop(
 
     println!("fanotify loop started for {} protected paths", paths.len());
 
+    let mut deny_notifier = DenyNotifier::default();
+
     loop {
         let events = fanotify.read_permission_events()?;
 
@@ -162,8 +165,13 @@ fn run_fanotify_loop(
         }
 
         for event in events {
-            if let Err(error) = handle_permission_event(fanotify.raw_fd(), config, log_file, &event)
-            {
+            if let Err(error) = handle_permission_event_with_notifier(
+                fanotify.raw_fd(),
+                config,
+                log_file,
+                &event,
+                Some(&mut deny_notifier),
+            ) {
                 let _ = fanotify::deny_permission_event(fanotify.raw_fd(), &event);
                 let _ = append_lifecycle_log(
                     log_file,
@@ -200,6 +208,16 @@ pub fn handle_permission_event(
     log_file: &Path,
     event: &FanotifyPermissionEvent,
 ) -> anyhow::Result<()> {
+    handle_permission_event_with_notifier(fanotify_fd, config, log_file, event, None)
+}
+
+fn handle_permission_event_with_notifier(
+    fanotify_fd: std::os::fd::RawFd,
+    config: &config::Config,
+    log_file: &Path,
+    event: &FanotifyPermissionEvent,
+    deny_notifier: Option<&mut DenyNotifier>,
+) -> anyhow::Result<()> {
     let access_event = fanotify::access_event_from_permission_event(event)?;
     let decision = policy::decide(config, &access_event);
     let decision_log = logging::DecisionLog::new(&access_event, &decision);
@@ -207,7 +225,46 @@ pub fn handle_permission_event(
     logging::append_jsonl_log(log_file, &decision_log)
         .with_context(|| format!("failed to append decision log to {}", log_file.display()))?;
 
-    fanotify::respond_to_permission_event(fanotify_fd, event, &decision)
+    fanotify::respond_to_permission_event(fanotify_fd, event, &decision)?;
+
+    if let Some(deny_notifier) = deny_notifier {
+        notify_denied_access(log_file, deny_notifier, &access_event, &decision);
+    }
+
+    Ok(())
+}
+
+fn notify_denied_access(
+    log_file: &Path,
+    deny_notifier: &mut DenyNotifier,
+    access_event: &crate::event::AccessEvent,
+    decision: &policy::Decision,
+) {
+    match deny_notifier.notify_if_denied(access_event, decision) {
+        Ok(
+            NotificationStatus::Sent
+            | NotificationStatus::Suppressed
+            | NotificationStatus::NotDenied,
+        ) => {}
+        Ok(NotificationStatus::Unavailable(reason)) => {
+            let _ = append_lifecycle_log(
+                log_file,
+                DaemonLog::new(
+                    "warn",
+                    format!("desktop notification unavailable: {reason}"),
+                ),
+            );
+        }
+        Err(error) => {
+            let _ = append_lifecycle_log(
+                log_file,
+                DaemonLog::new(
+                    "warn",
+                    format!("failed to send desktop notification: {error}"),
+                ),
+            );
+        }
+    }
 }
 
 fn append_lifecycle_log(path: &Path, log: DaemonLog) -> anyhow::Result<()> {
