@@ -331,6 +331,10 @@ sudo cargo run -- service restart
 The service is intended to run as root. Installed layout notes live in
 `packaging/INSTALL_LAYOUT.md`.
 
+Installed packages include `/etc/logrotate.d/peperspray` for
+`/var/log/peperspray/events.jsonl`. The default policy rotates daily, rotates
+early at 10 MiB, keeps 14 rotations, and compresses older logs.
+
 ### Build a local Debian package
 
 ```sh

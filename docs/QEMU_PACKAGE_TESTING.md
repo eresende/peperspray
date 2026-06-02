@@ -43,11 +43,13 @@ The smoke test verifies:
 
 - `/usr/bin/peperspray` and `/usr/bin/pepersprayd` are installed.
 - `/etc/peperspray/config.toml` exists as root-owned `0644`.
+- `/etc/logrotate.d/peperspray` exists as root-owned `0644` and passes
+  `logrotate --debug`.
 - `/var/log/peperspray/events.jsonl` exists.
 - `pepersprayd.service` is installed and can start under systemd.
 - `peperspray service status` can reach systemd.
-- `apt remove peperspray` removes binaries but leaves the conffile.
-- `apt purge peperspray` removes the config and runtime log.
+- `apt remove peperspray` removes binaries but leaves conffiles.
+- `apt purge peperspray` removes the config, logrotate policy, and runtime log.
 
 ## Notes
 

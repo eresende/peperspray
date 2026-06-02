@@ -9,6 +9,7 @@ if [ "$1" = "purge" ]; then
     rm -f /var/log/peperspray/events.jsonl
     rmdir /var/log/peperspray 2>/dev/null || true
     rm -f /etc/peperspray/config.toml
+    rm -f /etc/logrotate.d/peperspray
     rmdir /etc/peperspray 2>/dev/null || true
 fi
 

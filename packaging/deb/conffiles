@@ -1,1 +1,2 @@
 /etc/peperspray/config.toml
+/etc/logrotate.d/peperspray

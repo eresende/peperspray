@@ -146,10 +146,14 @@ set -eu
 command -v peperspray
 command -v pepersprayd
 test -f /etc/peperspray/config.toml
+test -f /etc/logrotate.d/peperspray
 test -f /var/log/peperspray/events.jsonl
 test -f /lib/systemd/system/pepersprayd.service
 test "$(stat -c %U:%G /etc/peperspray/config.toml)" = "root:root"
 test "$(stat -c %a /etc/peperspray/config.toml)" = "644"
+test "$(stat -c %U:%G /etc/logrotate.d/peperspray)" = "root:root"
+test "$(stat -c %a /etc/logrotate.d/peperspray)" = "644"
+sudo logrotate --debug /etc/logrotate.d/peperspray >/dev/null
 sudo systemctl daemon-reload
 sudo systemctl start pepersprayd.service
 systemctl is-active --quiet pepersprayd.service
@@ -164,6 +168,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get remove -y peperspray
 test ! -e /usr/bin/peperspray
 test ! -e /usr/bin/pepersprayd
 test -e /etc/peperspray/config.toml
+test -e /etc/logrotate.d/peperspray
 '
 
 echo "checking purge behavior..."
@@ -171,6 +176,7 @@ $SSH_BASE '
 set -eu
 sudo DEBIAN_FRONTEND=noninteractive apt-get purge -y peperspray
 test ! -e /etc/peperspray/config.toml
+test ! -e /etc/logrotate.d/peperspray
 test ! -e /var/log/peperspray/events.jsonl
 '
 

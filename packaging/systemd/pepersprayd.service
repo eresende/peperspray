@@ -1,6 +1,6 @@
 [Unit]
 Description=peperspray credential access guard daemon
-Documentation=README.md
+Documentation=https://github.com/eresende/peperspray
 After=local-fs.target
 
 [Service]

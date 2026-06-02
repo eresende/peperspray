@@ -6,6 +6,7 @@ The intended Linux package layout is:
 /usr/bin/peperspray
 /usr/bin/pepersprayd
 /etc/peperspray/config.toml
+/etc/logrotate.d/peperspray
 /var/log/peperspray/events.jsonl
 /lib/systemd/system/pepersprayd.service
 ```
@@ -14,6 +15,7 @@ Ownership and permissions:
 
 - `/etc/peperspray/`: `root:root`, `0755`
 - `/etc/peperspray/config.toml`: `root:root`, `0644` initially
+- `/etc/logrotate.d/peperspray`: `root:root`, `0644`
 - `/var/log/peperspray/`: `root:root`, `0755`
 - `/var/log/peperspray/events.jsonl`: created by `pepersprayd`
 - `/usr/bin/peperspray`: `root:root`, executable
@@ -21,6 +23,11 @@ Ownership and permissions:
 
 The service runs as root by default because fanotify permission events and
 policy enforcement require elevated privileges.
+
+The package installs a logrotate policy for `/var/log/peperspray/events.jsonl`.
+It rotates daily, rotates early at 10 MiB, keeps 14 rotations, compresses older
+logs, and uses `copytruncate` so the daemon does not need signal-based log
+reopen support.
 
 ## Package Lifecycle
 
@@ -51,8 +58,8 @@ sudo apt purge peperspray
 ```
 
 The maintainer scripts stop and disable `pepersprayd.service` during removal and
-remove `/etc/peperspray/config.toml` plus `/var/log/peperspray/events.jsonl`
-during purge.
+remove `/etc/peperspray/config.toml`, `/etc/logrotate.d/peperspray`, and
+`/var/log/peperspray/events.jsonl` during purge.
 
 For a repeatable VM smoke test of this lifecycle, see
 `docs/QEMU_PACKAGE_TESTING.md` and `packaging/qemu-test-deb.sh`.
