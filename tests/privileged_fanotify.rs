@@ -5,8 +5,9 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-fn daemon_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_pepersprayd")
+fn daemon_bin() -> String {
+    std::env::var("PEPERSPRAYD_BIN")
+        .unwrap_or_else(|_| env!("CARGO_BIN_EXE_pepersprayd").to_owned())
 }
 
 fn current_uid() -> u32 {

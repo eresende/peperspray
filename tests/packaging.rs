@@ -20,6 +20,7 @@ fn maintainer_scripts_are_executable() {
         "packaging/deb/postrm",
         "packaging/build-deb.sh",
         "packaging/qemu-test-deb.sh",
+        "packaging/qemu-test-privileged.sh",
     ] {
         let mode = std::fs::metadata(path)
             .unwrap_or_else(|err| panic!("{path} should exist: {err}"))
@@ -55,6 +56,7 @@ fn package_layout_files_exist() {
         "packaging/systemd/pepersprayd.service",
         "packaging/INSTALL_LAYOUT.md",
         "docs/QEMU_PACKAGE_TESTING.md",
+        "packaging/qemu-test-privileged.sh",
     ] {
         assert!(Path::new(path).exists(), "{path} should exist");
     }

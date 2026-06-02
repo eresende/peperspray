@@ -53,7 +53,8 @@ the user's session bus when `notify-send` is available. Notifications are
 throttled per user, executable, protected group, and operation for five minutes.
 
 Privileged Linux integration tests on Ubuntu 24.04 start the daemon against
-temporary protected files and prove allowed/denied reads end to end.
+temporary protected files, prove allowed/denied reads end to end, and document
+current hard-link, bind-mount, and mount-namespace path-identity limitations.
 
 Failure behavior is tracked separately in
 [FAILURE_BEHAVIOR.md](FAILURE_BEHAVIOR.md).
@@ -64,7 +65,10 @@ Path behavior and known identity limitations are tracked in
 ## Test Plan
 
 - Unit-test policy matching for allowlist-first behavior, protected path expansion, process ancestry, and mode-specific decisions.
-- Integration-test Linux backend with temporary protected files to prove reads are allowed in learn mode and denied in enforce mode.
+- Integration-test Linux backend with temporary protected files to prove reads
+  are allowed in learn mode and denied in enforce mode.
+- Run ignored privileged path-identity regressions for hard-link, bind-mount,
+  and mount-namespace alias behavior on dogfood hosts.
 - Verify logs contain executable, cmdline, cwd, parent chain, target path, decision, reason, datetime, and denied-event process snapshots.
 - Package-test `.deb` install, `systemd` startup, config permissions, log
   permissions, logrotate policy, service metadata, and clean uninstall behavior

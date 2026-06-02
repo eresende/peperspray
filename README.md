@@ -95,6 +95,8 @@ Implemented policy and CLI capabilities:
   and FAN_ALLOW/FAN_DENY responses
 - Privileged fanotify integration tests proving learn/enforce read behavior on
   Ubuntu 24.04
+- Privileged path-identity regression tests documenting current hard-link,
+  bind-mount, and mount-namespace limitations
 - Service management wrappers around `systemctl`
 - Installed-layout scaffolding under `packaging/`
 - Local `.deb` package build script and Debian maintainer scripts
@@ -334,6 +336,26 @@ To run the ignored privileged fanotify tests on a Linux host:
 cargo test --test privileged_fanotify --no-run
 sudo "$(find target/debug/deps -maxdepth 1 -type f -executable -name 'privileged_fanotify-*' | head -n1)" --ignored --nocapture
 ```
+
+To run the ignored privileged path-identity regression tests:
+
+```sh
+cargo test --test privileged_path_identity --no-run
+sudo "$(find target/debug/deps -maxdepth 1 -type f -executable -name 'privileged_path_identity-*' | head -n1)" --ignored --nocapture
+```
+
+These tests intentionally document current hard-link, bind-mount, and
+mount-namespace alias behavior. If future path-identity hardening blocks those
+aliases, update the expectations and `docs/PATH_SEMANTICS.md` together.
+
+To run both ignored privileged test suites in an isolated Ubuntu 24.04 QEMU VM:
+
+```sh
+packaging/qemu-test-privileged.sh --image ./noble-server-cloudimg-amd64.img
+```
+
+The QEMU runner builds the test artifacts on the host, copies them into the VM,
+and runs them as root with `PEPERSPRAYD_BIN` pointing at the copied daemon.
 
 ### Manage installed service
 
@@ -580,9 +602,8 @@ logging, setup, status, and review behavior remains easier to test in isolation.
 
 Suggested next milestones:
 
-1. Add bind-mount and namespace integration tests.
-2. Add inode or signature-based binary identity hardening.
-3. Add release documentation.
+1. Add inode/device path-identity hardening for protected files.
+2. Add release documentation.
 
 ## Current MVP Boundary
 

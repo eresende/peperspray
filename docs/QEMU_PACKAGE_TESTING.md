@@ -53,11 +53,25 @@ The smoke test verifies:
 
 ## Notes
 
-The QEMU package smoke test does not run the ignored privileged fanotify tests.
-Run those separately inside an Ubuntu 24.04 environment when validating real
-read blocking:
+The QEMU package smoke test does not run the ignored privileged fanotify or
+path-identity tests. Use the dedicated privileged-test runner when validating
+real read blocking and current path-alias behavior:
+
+```sh
+packaging/qemu-test-privileged.sh --image ./noble-server-cloudimg-amd64.img
+```
+
+The privileged runner builds `pepersprayd`, `privileged_fanotify`, and
+`privileged_path_identity` on the host, copies those artifacts into the VM, then
+runs the ignored tests with root privileges. This avoids installing Rust in the
+guest while still exercising the guest kernel, fanotify permission events, bind
+mounts, and mount namespaces.
+
+You can still run the tests manually inside an Ubuntu 24.04 environment:
 
 ```sh
 cargo test --test privileged_fanotify --no-run
 sudo "$(find target/debug/deps -maxdepth 1 -type f -executable -name 'privileged_fanotify-*' | head -n1)" --ignored --nocapture
+cargo test --test privileged_path_identity --no-run
+sudo "$(find target/debug/deps -maxdepth 1 -type f -executable -name 'privileged_path_identity-*' | head -n1)" --ignored --nocapture
 ```

@@ -51,19 +51,27 @@ hard link outside that directory. Because the current policy model only checks
 path prefixes, an access through the outside hard-link path is not detected as
 protected.
 
+The ignored privileged regression test
+`hard_link_alias_outside_marked_dir_is_currently_not_blocked` documents this
+current behavior end to end.
+
 Future hardening should consider matching device/inode identity for protected
 files or marking broader filesystem scopes and resolving object identity before
 policy evaluation.
 
 ## Bind Mounts And Namespaces
 
-Bind mounts and mount namespaces are not yet evaluated. They can present the same
-filesystem object under different paths, so path-prefix policy alone may be
-insufficient.
+Bind mounts and mount namespaces can present the same filesystem object under
+different paths, so path-prefix policy alone is insufficient. Current
+regression coverage documents that an alias outside the configured protected
+path can still be read when it is reached through a bind mount or through a bind
+mount created inside a separate mount namespace.
 
-Before release, Ubuntu 24.04 integration tests should cover:
+The ignored privileged tests are:
 
 - bind mount from protected directory to unprotected path
-- bind mount from unprotected directory into protected path
-- process mount namespace differences
-- symlink and hard-link combinations across marked paths
+- process mount namespace bind mount from protected directory to unprotected
+  path
+
+Remaining hardening work should add inode/device identity tracking for protected
+files and then update these tests to assert the hardened behavior.
