@@ -4,6 +4,7 @@ pub mod config;
 pub mod daemon;
 pub mod event;
 pub mod fanotify;
+pub mod identity;
 pub mod logging;
 pub mod notifications;
 pub mod paths;

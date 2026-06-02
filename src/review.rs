@@ -1,4 +1,5 @@
 use crate::event::Operation;
+use crate::identity;
 use crate::logging;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -21,6 +22,10 @@ pub struct ReviewCandidate {
 struct ReviewCandidateOutput {
     uid: u32,
     exe: PathBuf,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exe_sha256: Option<String>,
+
     path_group: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -149,6 +154,7 @@ fn review_candidate_to_output(candidate: &ReviewCandidate) -> ReviewCandidateOut
     ReviewCandidateOutput {
         uid: candidate.key.uid,
         exe: candidate.key.exe.clone(),
+        exe_sha256: candidate_exe_sha256(candidate),
         path_group: candidate.key.path_group.clone(),
         parent_exe: candidate.key.parent_exe.clone(),
         event_count: candidate.event_count,
@@ -172,19 +178,31 @@ pub fn print_review_candidates_json(candidates: &[ReviewCandidate]) -> anyhow::R
 
 pub fn candidate_to_toml(candidate: &ReviewCandidate) -> String {
     let mut toml = format!(
-        "[[allow_rules]]\nname = \"{}\"\nuid = {}\nexe = \"{}\"\npath_group = \"{}\"\noperation = \"{}\"",
+        "[[allow_rules]]\nname = \"{}\"\nuid = {}\nexe = \"{}\"",
         suggested_allow_rule_name(candidate),
         candidate.key.uid,
-        candidate.key.exe.display(),
+        candidate.key.exe.display()
+    );
+
+    if let Some(exe_sha256) = candidate_exe_sha256(candidate) {
+        toml.push_str(&format!("\nexe_sha256 = \"{exe_sha256}\""));
+    }
+
+    toml.push_str(&format!(
+        "\npath_group = \"{}\"\noperation = \"{}\"",
         candidate.key.path_group,
         Operation::OpenRead
-    );
+    ));
 
     if let Some(parent_exe) = &candidate.key.parent_exe {
         toml.push_str(&format!("\nparent_exe = \"{}\"", parent_exe.display()));
     }
 
     toml
+}
+
+fn candidate_exe_sha256(candidate: &ReviewCandidate) -> Option<String> {
+    identity::file_sha256(&candidate.key.exe).ok()
 }
 
 pub fn review_candidates_to_toml(candidates: &[ReviewCandidate]) -> String {
@@ -380,6 +398,29 @@ mod tests {
         assert!(toml.contains("exe = \"/usr/bin/python3\""));
         assert!(toml.contains("path_group = \"aws\""));
         assert!(toml.contains("operation = \"open_read\""));
+    }
+
+    #[test]
+    fn candidate_to_toml_includes_exe_sha256_when_executable_is_readable() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let exe = dir.path().join("tool");
+        std::fs::write(&exe, "trusted tool").expect("exe should be written");
+
+        let candidate = ReviewCandidate {
+            key: ReviewCandidateKey {
+                uid: 1000,
+                exe: exe.clone(),
+                path_group: "aws".to_string(),
+                parent_exe: None,
+            },
+            event_count: 1,
+        };
+
+        let hash = identity::file_sha256(&exe).expect("exe should hash");
+        let toml = candidate_to_toml(&candidate);
+
+        assert!(toml.contains(&format!("exe = \"{}\"", exe.display())));
+        assert!(toml.contains(&format!("exe_sha256 = \"{hash}\"")));
     }
 
     #[test]

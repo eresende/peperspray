@@ -95,6 +95,7 @@ mod tests {
                 name: "Allow AWS CLI".to_string(),
                 uid: 1000,
                 exe: PathBuf::from("/usr/bin/aws"),
+                exe_sha256: None,
                 path_group: "aws".to_string(),
                 parent_exe: None,
                 operation: None,

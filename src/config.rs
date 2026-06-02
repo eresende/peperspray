@@ -1,4 +1,5 @@
 use crate::event::Operation;
+use crate::identity;
 use crate::paths;
 use nix::unistd::{Uid, User};
 use serde::{Deserialize, Serialize};
@@ -7,6 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     pub mode: Mode,
     pub users: Vec<ProtectedUser>,
@@ -33,22 +35,29 @@ impl std::fmt::Display for Mode {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProtectedUser {
     pub uid: u32,
     pub groups: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProtectedPathGroup {
     pub name: String,
     pub paths: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct AllowRule {
     pub name: String,
     pub uid: u32,
     pub exe: PathBuf,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exe_sha256: Option<String>,
+
     pub path_group: String,
 
     #[serde(default)]
@@ -62,6 +71,7 @@ pub struct AllowRule {
 struct AllowRuleBehaviorKey<'a> {
     uid: u32,
     exe: &'a PathBuf,
+    exe_sha256: Option<&'a String>,
     path_group: &'a str,
     parent_exe: Option<&'a PathBuf>,
     operation: Option<Operation>,
@@ -112,6 +122,7 @@ pub fn validate_config(config: &Config) -> Vec<String> {
     validate_duplicate_group_names(config, &mut errors);
     validate_duplicate_rule_names(config, &mut errors);
     validate_duplicate_allow_rule_behavior(config, &mut errors);
+    validate_allow_rule_hashes(config, &mut errors);
 
     errors
 }
@@ -188,6 +199,7 @@ fn validate_duplicate_allow_rule_behavior(config: &Config, errors: &mut Vec<Stri
         let key = AllowRuleBehaviorKey {
             uid: rule.uid,
             exe: &rule.exe,
+            exe_sha256: rule.exe_sha256.as_ref(),
             path_group: &rule.path_group,
             parent_exe: rule.parent_exe.as_ref(),
             operation: rule.operation,
@@ -195,9 +207,10 @@ fn validate_duplicate_allow_rule_behavior(config: &Config, errors: &mut Vec<Stri
 
         if !seen.insert(key) {
             errors.push(format!(
-                "duplicate allow rule behavior: uid {}, exe '{}', path_group '{}', parent_exe '{}', operation '{}'",
+                "duplicate allow rule behavior: uid {}, exe '{}', exe_sha256 '{}', path_group '{}', parent_exe '{}', operation '{}'",
                 rule.uid,
                 rule.exe.display(),
+                rule.exe_sha256.as_deref().unwrap_or("<none>"),
                 rule.path_group,
                 rule.parent_exe
                     .as_ref()
@@ -206,6 +219,19 @@ fn validate_duplicate_allow_rule_behavior(config: &Config, errors: &mut Vec<Stri
                 rule.operation
                     .map(|operation| operation.to_string())
                     .unwrap_or_else(|| "<any>".to_string())
+            ));
+        }
+    }
+}
+
+fn validate_allow_rule_hashes(config: &Config, errors: &mut Vec<String>) {
+    for rule in &config.allow_rules {
+        if let Some(hash) = &rule.exe_sha256
+            && !identity::is_sha256_hex(hash)
+        {
+            errors.push(format!(
+                "allow rule '{}' has invalid exe_sha256 '{}'; expected 64 hex characters",
+                rule.name, hash
             ));
         }
     }
@@ -301,6 +327,7 @@ mod tests {
                 name: "Allow AWS CLI".to_string(),
                 uid: 1000,
                 exe: PathBuf::from("/usr/bin/aws"),
+                exe_sha256: None,
                 path_group: "aws".to_string(),
                 parent_exe: None,
                 operation: None,
@@ -362,6 +389,7 @@ mod tests {
             name: "Allow AWS CLI".to_string(),
             uid: 1000,
             exe: PathBuf::from("/usr/local/bin/aws"),
+            exe_sha256: None,
             path_group: "aws".to_string(),
             parent_exe: None,
             operation: None,
@@ -382,6 +410,7 @@ mod tests {
             name: "Another AWS CLI rule".to_string(),
             uid: 1000,
             exe: PathBuf::from("/usr/bin/aws"),
+            exe_sha256: None,
             path_group: "aws".to_string(),
             parent_exe: None,
             operation: None,
@@ -395,6 +424,18 @@ mod tests {
             "unexpected error: {:?}",
             errors
         );
+    }
+
+    #[test]
+    fn detects_invalid_allow_rule_exe_sha256() {
+        let mut config = sample_config();
+
+        config.allow_rules[0].exe_sha256 = Some("not-a-sha256".to_string());
+
+        let errors = validate_config(&config);
+
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("invalid exe_sha256"));
     }
 
     #[test]
@@ -436,6 +477,32 @@ operation = "open_read"
         let config: Config = toml::from_str(toml).expect("config should parse");
 
         assert_eq!(config.allow_rules[0].operation, Some(Operation::OpenRead));
+    }
+
+    #[test]
+    fn rejects_unknown_allow_rule_fields() {
+        let toml = r#"
+mode = "enforce"
+
+[[users]]
+uid = 1000
+groups = ["aws"]
+
+[[protected_groups]]
+name = "aws"
+paths = ["/home/alice/.aws"]
+
+[[allow_rules]]
+name = "Allow AWS CLI"
+uid = 1000
+exe = "/usr/bin/aws"
+sha256 = "not-the-right-field"
+path_group = "aws"
+"#;
+
+        let result = toml::from_str::<Config>(toml);
+
+        assert!(result.is_err());
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use crate::config::{AllowRule, Config, Mode};
 use crate::event::AccessEvent;
+use crate::identity;
 use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -41,10 +42,7 @@ pub fn decide(config: &Config, event: &AccessEvent) -> Decision {
 
     if let Some(rule) = matched_rule {
         return Decision::Allow {
-            reason: format!(
-                "matched allow rule '{}' for protected group '{matched_group}'",
-                rule.name
-            ),
+            reason: allow_rule_match_reason(rule, &matched_group),
             matched_path_group: Some(matched_group),
             would_deny: false,
         };
@@ -64,6 +62,19 @@ pub fn decide(config: &Config, event: &AccessEvent) -> Decision {
             would_deny: false,
         },
     }
+}
+
+fn allow_rule_match_reason(rule: &AllowRule, matched_group: &str) -> String {
+    let identity = if rule.exe_sha256.is_some() {
+        " with matching exe_sha256"
+    } else {
+        ""
+    };
+
+    format!(
+        "matched allow rule '{}' for protected group '{matched_group}'{identity}",
+        rule.name
+    )
 }
 
 fn find_matching_protected_group(config: &Config, event: &AccessEvent) -> Option<String> {
@@ -95,6 +106,16 @@ fn allow_rule_matches(rule: &AllowRule, event: &AccessEvent, matched_group: &str
 
     if rule.exe != event.exe {
         return false;
+    }
+
+    if let Some(expected_hash) = &rule.exe_sha256 {
+        let Ok(actual_hash) = identity::file_sha256(&event.exe) else {
+            return false;
+        };
+
+        if !actual_hash.eq_ignore_ascii_case(expected_hash) {
+            return false;
+        }
     }
 
     if rule.path_group != matched_group {
@@ -161,6 +182,7 @@ mod tests {
                 name: "Allow AWS CLI".to_string(),
                 uid: 1000,
                 exe: PathBuf::from("/usr/bin/aws"),
+                exe_sha256: None,
                 path_group: "aws".to_string(),
                 parent_exe: None,
                 operation: None,
@@ -323,6 +345,51 @@ mod tests {
         let decision = decide(&config, &event);
 
         assert!(matches!(decision, Decision::Allow { .. }));
+    }
+
+    #[test]
+    fn allows_rule_when_exe_sha256_matches() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let exe = dir.path().join("aws");
+        std::fs::write(&exe, "aws cli").expect("exe should be written");
+        let hash = crate::identity::file_sha256(&exe).expect("exe should hash");
+
+        let mut config = sample_config(Mode::Enforce);
+        config.allow_rules[0].exe = exe.clone();
+        config.allow_rules[0].exe_sha256 = Some(hash);
+
+        let event = access_event(
+            exe.to_str().expect("path should be utf8"),
+            "/home/alice/.aws/credentials",
+        );
+
+        let decision = decide(&config, &event);
+
+        assert!(matches!(
+            decision,
+            Decision::Allow { reason, .. } if reason.contains("matching exe_sha256")
+        ));
+    }
+
+    #[test]
+    fn denies_rule_when_exe_sha256_does_not_match() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let exe = dir.path().join("aws");
+        std::fs::write(&exe, "aws cli").expect("exe should be written");
+
+        let mut config = sample_config(Mode::Enforce);
+        config.allow_rules[0].exe = exe.clone();
+        config.allow_rules[0].exe_sha256 =
+            Some("0000000000000000000000000000000000000000000000000000000000000000".to_string());
+
+        let event = access_event(
+            exe.to_str().expect("path should be utf8"),
+            "/home/alice/.aws/credentials",
+        );
+
+        let decision = decide(&config, &event);
+
+        assert!(matches!(decision, Decision::Deny { .. }));
     }
 
     #[test]

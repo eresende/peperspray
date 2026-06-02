@@ -16,6 +16,7 @@ chrono = { version = "0.4.44", features = ["serde"] }
 uuid = { version = "1.23.1", features = ["v4", "serde"] }
 nix = { version = "0.31.3", features = ["user"] }
 which = "8.0.2"
+sha2 = "0.10.9"
 
 [dev-dependencies]
 tempfile = "3.27.0"

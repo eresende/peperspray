@@ -23,7 +23,9 @@ Default posture is zero-trust: protected credential reads are denied in enforce 
 - Modes:
   - `learn`: log would-allow/would-deny decisions without blocking.
   - `enforce`: block protected reads unless an allow rule matches.
-- Allow rules match executable/cmdline/process ancestry/path group, with no blanket trusted tools by default.
+- Allow rules match executable path, optional executable SHA-256 digest,
+  cmdline/process ancestry, path group, and operation, with no blanket trusted
+  tools by default.
 - Denied events include a full running-process snapshot; normal allowed/learn events log only the access event context.
 
 ## CLI Surface
@@ -97,15 +99,15 @@ cloud IAM, sandboxing, endpoint detection, or package supply-chain controls.
 The first enforcement milestone is intentionally narrow:
 
 - Linux `fanotify` read enforcement is the only planned blocking backend.
-- Policy identity is based on executable path, UID, protected group, operation,
-  and optional parent executable. Stronger binary identity checks such as inode,
-  signature, or content hash matching are future hardening.
+- Policy identity is based on executable path, optional executable SHA-256
+  digest, UID, protected group, operation, and optional parent executable.
+  Stronger binary identity checks such as inode or signature matching are future
+  hardening.
 - Path behavior around hard links, bind mounts, and namespace boundaries needs
   hardening before relying on the tool for high-assurance environments.
 - Learn mode is observational. It records accesses that would be denied but does
   not prevent credential reads.
-- If the daemon is not running, the current prototype cannot protect the host.
-  Installed failure behavior must be documented and tested before release.
+- If the daemon is not running, the current MVP cannot protect the host.
 - The initial CLI writes local TOML configuration and JSONL logs. It does not
   provide fleet policy distribution, remote attestation, central audit export,
   or multi-user approval workflows.

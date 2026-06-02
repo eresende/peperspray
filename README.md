@@ -75,6 +75,7 @@ Implemented policy and CLI capabilities:
 - `~` expansion for protected group paths
 - Optional `operation` field on allow rules
 - Optional `parent_exe` field on allow rules
+- Optional `exe_sha256` executable hash pin on allow rules
 - Process inspection from `/proc/<pid>`
 - Parent-process chain collection
 - JSONL decision logs
@@ -186,6 +187,7 @@ paths = [".env", ".env.local", ".env.development", ".env.production"]
 name = "Allow AWS CLI"
 uid = 1000
 exe = "/usr/bin/aws"
+# exe_sha256 = "64-character sha256 digest"
 path_group = "aws"
 operation = "open_read"
 
@@ -209,9 +211,15 @@ Allow-rule fields:
 - `name`: human-readable rule name
 - `uid`: protected user ID
 - `exe`: executable path that is allowed
+- `exe_sha256`: optional SHA-256 pin for the resolved executable
 - `path_group`: protected group the executable may access
 - `operation`: optional operation constraint; currently `open_read`
 - `parent_exe`: optional parent executable constraint
+
+If `exe_sha256` is set, the rule only matches when the resolved executable file
+hash equals that digest. If it is omitted, the rule keeps the current path-only
+executable matching behavior. `policy-review --toml` includes `exe_sha256` when
+the logged executable is still readable.
 
 If `operation` is omitted, the rule currently applies to any known operation.
 Since the prototype only models `open_read`, generated rules include
@@ -541,6 +549,7 @@ The current code is organized around the planned backend split:
 - `src/daemon.rs`: daemon config validation, lifecycle logging, and event handler
 - `src/event.rs`: access-event model and operation type
 - `src/fanotify.rs`: Linux `fanotify` permission-event helpers
+- `src/identity.rs`: executable identity helpers such as SHA-256 hashing
 - `src/policy.rs`: policy decision engine
 - `src/logging.rs`: decision log serialization and JSONL helpers
 - `src/paths.rs`: path normalization and `~` expansion helpers
@@ -569,8 +578,8 @@ logging, setup, status, and review behavior remains easier to test in isolation.
 
 Suggested next milestones:
 
-1. Add optional binary identity hardening, such as inode or hash matching.
-2. Add bind-mount and namespace integration tests.
+1. Add bind-mount and namespace integration tests.
+2. Add inode or signature-based binary identity hardening.
 3. Add `why last` UX.
 4. Add release documentation.
 
