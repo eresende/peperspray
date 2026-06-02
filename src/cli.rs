@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::str::FromStr;
 use uuid::Uuid;
 
 pub const DEFAULT_CONFIG_PATH: &str = "examples/config.toml";
@@ -16,6 +17,26 @@ pub struct Cli {
 pub enum DecisionFilter {
     Allow,
     Deny,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WhyTarget {
+    EventId(Uuid),
+    Last,
+}
+
+impl FromStr for WhyTarget {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value == "last" {
+            return Ok(Self::Last);
+        }
+
+        Uuid::parse_str(value)
+            .map(Self::EventId)
+            .map_err(|err| format!("expected an event id or 'last': {err}"))
+    }
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -78,10 +99,13 @@ pub enum Command {
     },
 
     Why {
-        event_id: Uuid,
+        target: WhyTarget,
 
         #[arg(long, default_value = DEFAULT_LOG_FILE)]
         log_file: PathBuf,
+
+        #[arg(long)]
+        decision: Option<DecisionFilter>,
 
         #[arg(long)]
         json: bool,

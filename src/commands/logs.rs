@@ -125,6 +125,15 @@ pub fn find_log_by_event_id(
     logs.iter().find(|log| log.event_id == event_id)
 }
 
+pub fn find_last_log(
+    logs: &[logging::OwnedDecisionLog],
+    decision: Option<DecisionFilter>,
+) -> Option<&logging::OwnedDecisionLog> {
+    logs.iter()
+        .rev()
+        .find(|log| matches_decision(log, decision))
+}
+
 fn matches_decision(log: &logging::OwnedDecisionLog, decision: Option<DecisionFilter>) -> bool {
     match decision {
         Some(DecisionFilter::Allow) => log.decision == "allow",
@@ -283,6 +292,28 @@ mod tests {
         let selected = filter_logs_by_decision(&logs, None);
 
         assert_eq!(selected.len(), 2);
+    }
+
+    #[test]
+    fn find_last_log_returns_last_matching_decision() {
+        let mut logs = [fake_log(1), fake_log(2), fake_log(3)];
+        logs[0].decision = "deny".to_string();
+        logs[1].decision = "allow".to_string();
+        logs[2].decision = "deny".to_string();
+
+        let selected =
+            find_last_log(&logs, Some(DecisionFilter::Deny)).expect("last deny should be found");
+
+        assert_eq!(selected.exe, PathBuf::from("/usr/bin/tool-3"));
+    }
+
+    #[test]
+    fn find_last_log_returns_none_when_no_decision_matches() {
+        let logs = [fake_log(1), fake_log(2)];
+
+        let selected = find_last_log(&logs, Some(DecisionFilter::Deny));
+
+        assert!(selected.is_none());
     }
 
     #[test]

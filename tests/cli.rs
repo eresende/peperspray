@@ -124,6 +124,36 @@ fn policy_review_min_events_filters_suggestions() {
 }
 
 #[test]
+fn why_last_with_decision_filter_explains_latest_matching_event() {
+    let dir = tempfile::tempdir().expect("temp dir should be created");
+    let log_file = dir.path().join("events.jsonl");
+    std::fs::write(
+        &log_file,
+        r#"{"event_id":"00000000-0000-0000-0000-000000000001","timestamp":"2026-01-01T00:00:00Z","uid":1000,"exe":"/usr/bin/old-deny","target_path":"/tmp/old-deny","operation":"open_read","decision":"deny","reason":"old deny","would_deny":false}
+{"event_id":"00000000-0000-0000-0000-000000000002","timestamp":"2026-01-01T00:00:01Z","uid":1000,"exe":"/usr/bin/allow","target_path":"/tmp/allow","operation":"open_read","decision":"allow","reason":"allow","would_deny":false}
+{"event_id":"00000000-0000-0000-0000-000000000003","timestamp":"2026-01-01T00:00:02Z","uid":1000,"exe":"/usr/bin/new-deny","target_path":"/tmp/new-deny","operation":"open_read","decision":"deny","reason":"new deny","would_deny":false}
+"#,
+    )
+    .expect("log should be written");
+
+    let output = Command::new(bin())
+        .args(["why", "last", "--log-file"])
+        .arg(&log_file)
+        .args(["--decision", "deny"])
+        .output()
+        .expect("command should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+
+    assert!(stdout.contains("Event 00000000-0000-0000-0000-000000000003"));
+    assert!(stdout.contains("Executable:  /usr/bin/new-deny"));
+    assert!(stdout.contains("new deny"));
+    assert!(!stdout.contains("/usr/bin/old-deny"));
+}
+
+#[test]
 fn daemon_check_validates_config_and_writes_lifecycle_log() {
     let dir = tempfile::tempdir().expect("temp dir should be created");
     let config = dir.path().join("config.toml");

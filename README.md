@@ -81,7 +81,7 @@ Implemented policy and CLI capabilities:
 - JSONL decision logs
 - Log filtering by decision, count, and timestamp
 - Log following
-- Single-event lookup by event ID
+- Single-event lookup by event ID or latest matching event
 - Policy-review suggestions as human text, JSON, TOML, or suggestion file,
   with minimum-event filtering
 - Starter and interactive config generation with detected local tools
@@ -445,6 +445,8 @@ cargo run -- logs --log-file ./events.jsonl --json
 
 ```sh
 cargo run -- why <event-id> --log-file ./events.jsonl
+cargo run -- why last --log-file ./events.jsonl
+cargo run -- why last --decision deny --log-file ./events.jsonl
 cargo run -- why <event-id> --log-file ./events.jsonl --json
 ```
 
@@ -580,8 +582,7 @@ Suggested next milestones:
 
 1. Add bind-mount and namespace integration tests.
 2. Add inode or signature-based binary identity hardening.
-3. Add `why last` UX.
-4. Add release documentation.
+3. Add release documentation.
 
 ## Current MVP Boundary
 

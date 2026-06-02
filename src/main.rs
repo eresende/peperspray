@@ -1,6 +1,6 @@
 use anyhow::Context;
 use clap::Parser;
-use peperspray::cli::{Cli, Command, ServiceCommand};
+use peperspray::cli::{Cli, Command, DecisionFilter, ServiceCommand, WhyTarget};
 use peperspray::event::{AccessEvent, Operation};
 use peperspray::policy::Decision;
 use peperspray::{
@@ -114,19 +114,37 @@ fn main() -> anyhow::Result<()> {
         }
 
         Command::Why {
-            event_id,
+            target,
             log_file,
+            decision,
             json,
         } => {
             let logs = logging::read_jsonl_logs(&log_file)
                 .with_context(|| format!("failed to read log file {}", log_file.display()))?;
 
-            let Some(log) = commands::logs::find_log_by_event_id(&logs, event_id) else {
-                anyhow::bail!(
-                    "event id {} was not found in {}",
-                    event_id,
-                    log_file.display()
-                );
+            let log = match target {
+                WhyTarget::EventId(event_id) => {
+                    let Some(log) = commands::logs::find_log_by_event_id(&logs, event_id) else {
+                        anyhow::bail!(
+                            "event id {} was not found in {}",
+                            event_id,
+                            log_file.display()
+                        );
+                    };
+
+                    log
+                }
+                WhyTarget::Last => {
+                    let Some(log) = commands::logs::find_last_log(&logs, decision) else {
+                        anyhow::bail!(
+                            "no log events{} found in {}",
+                            decision_filter_text(decision),
+                            log_file.display()
+                        );
+                    };
+
+                    log
+                }
             };
 
             if json {
@@ -398,6 +416,14 @@ fn print_process_info(info: &process::ProcessInfo) {
                 cmdline
             );
         }
+    }
+}
+
+fn decision_filter_text(decision: Option<DecisionFilter>) -> &'static str {
+    match decision {
+        Some(DecisionFilter::Allow) => " matching allow",
+        Some(DecisionFilter::Deny) => " matching deny",
+        None => "",
     }
 }
 
