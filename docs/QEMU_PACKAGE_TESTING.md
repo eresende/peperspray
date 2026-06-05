@@ -1,7 +1,7 @@
 # QEMU Package Testing
 
-Use QEMU/KVM to validate the Debian package in a real booted Ubuntu system.
-This is the package lifecycle test that Docker cannot accurately cover because
+Use QEMU to validate the Debian package in a real booted Ubuntu system. This is
+the package lifecycle test that Docker cannot accurately cover because
 `pepersprayd` depends on systemd, root-owned service execution, fanotify, and
 normal `/etc` plus `/var/log` behavior.
 
@@ -37,6 +37,9 @@ The script creates a temporary overlay under `target/qemu-deb-test`, boots the
 cloud image with SSH on `127.0.0.1:2222`, installs the package, checks service
 startup, verifies installed paths, runs remove, then runs purge.
 
+The runner uses KVM when `/dev/kvm` is available and falls back to TCG
+otherwise. Set `QEMU_ACCEL=kvm` or `QEMU_ACCEL=tcg` to force one mode.
+
 ## Checks
 
 The smoke test verifies:
@@ -45,7 +48,8 @@ The smoke test verifies:
 - `/etc/peperspray/config.toml` exists as root-owned `0644`.
 - `/etc/logrotate.d/peperspray` exists as root-owned `0644` and passes
   `logrotate --debug`.
-- `/var/log/peperspray/events.jsonl` exists.
+- `/var/log/peperspray` exists as `root:adm` with mode `0750`.
+- `/var/log/peperspray/events.jsonl` exists as `root:adm` with mode `0640`.
 - `pepersprayd.service` is installed and can start under systemd.
 - `peperspray service status` can reach systemd.
 - `apt remove peperspray` removes binaries but leaves conffiles.

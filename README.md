@@ -103,8 +103,10 @@ Implemented policy and CLI capabilities:
 - Remove/purge behavior for the installed service, config, and runtime log
 - Installed logrotate policy for runtime log retention
 - Best-effort desktop notifications for denied reads with in-memory throttling
-- QEMU/KVM package lifecycle test for install, service startup, remove, and
-  purge on Ubuntu 24.04
+- QEMU package lifecycle test for install, service startup, log permissions,
+  remove, and purge on Ubuntu 24.04
+- QEMU privileged integration runner for fanotify enforcement and path-identity
+  regression tests on Ubuntu 24.04
 - Documented path semantics and known hard-link/bind-mount limitations
 
 Not implemented yet:
@@ -355,7 +357,9 @@ packaging/qemu-test-privileged.sh --image ./noble-server-cloudimg-amd64.img
 ```
 
 The QEMU runner builds the test artifacts on the host, copies them into the VM,
-and runs them as root with `PEPERSPRAYD_BIN` pointing at the copied daemon.
+and runs them as root with `PEPERSPRAYD_BIN` pointing at the copied daemon. The
+runner uses KVM when `/dev/kvm` is available and falls back to TCG otherwise;
+set `QEMU_ACCEL=kvm` or `QEMU_ACCEL=tcg` to force one mode.
 
 ### Manage installed service
 
@@ -385,13 +389,14 @@ sudo apt remove peperspray
 sudo apt purge peperspray
 ```
 
-Validate the package lifecycle in a QEMU/KVM Ubuntu 24.04 VM:
+Validate the package lifecycle in a QEMU Ubuntu 24.04 VM:
 
 ```sh
 packaging/qemu-test-deb.sh --image ./noble-server-cloudimg-amd64.img
 ```
 
-See `docs/QEMU_PACKAGE_TESTING.md` for prerequisites and exact checks.
+See `docs/QEMU_PACKAGE_TESTING.md` for prerequisites, accelerator options, and
+exact checks.
 
 ### Show policy status
 
@@ -588,10 +593,12 @@ The current code is organized around the planned backend split:
 - `src/bin/pepersprayd.rs`: daemon entrypoint
 - `packaging/INSTALL_LAYOUT.md`: intended installed filesystem layout
 - `packaging/build-deb.sh`: local `.deb` package builder
-- `packaging/qemu-test-deb.sh`: QEMU/KVM package lifecycle smoke test
+- `packaging/qemu-test-deb.sh`: QEMU package lifecycle smoke test
+- `packaging/qemu-test-privileged.sh`: QEMU privileged fanotify/path-identity
+  test runner
 - `packaging/deb/`: Debian metadata and maintainer scripts
 - `packaging/systemd/pepersprayd.service`: installed systemd unit
-- `docs/QEMU_PACKAGE_TESTING.md`: QEMU/KVM package validation guide
+- `docs/QEMU_PACKAGE_TESTING.md`: QEMU package validation guide
 - `docs/FAILURE_BEHAVIOR.md`: intended failure behavior for MVP hardening
 - `docs/PATH_SEMANTICS.md`: current path behavior and hardening gaps
 
@@ -603,7 +610,8 @@ logging, setup, status, and review behavior remains easier to test in isolation.
 Suggested next milestones:
 
 1. Add inode/device path-identity hardening for protected files.
-2. Add release documentation.
+2. Add package upgrade smoke coverage for permission repair from older installs.
+3. Add release documentation.
 
 ## Current MVP Boundary
 

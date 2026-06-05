@@ -7,11 +7,12 @@ Ubuntu 24.04, but it still has personal-production hardening gaps documented in
 
 ## Daemon Crash
 
-Installed mode should run `pepersprayd` under systemd with `Restart=on-failure`.
-If the daemon crashes, protected reads are no longer blocked until systemd
-restarts it and the fanotify marks are re-established. The daemon writes startup
-lifecycle logs after config validation and after the fanotify loop starts so
-operators can distinguish "never started" from "started then crashed".
+Installed mode runs `pepersprayd` under systemd with `Restart=always` and a
+short restart backoff. If the daemon exits or crashes, protected reads are no
+longer blocked until systemd restarts it and the fanotify marks are
+re-established. The daemon writes startup lifecycle logs after config validation
+and after the fanotify loop starts so operators can distinguish "never started"
+from "started then crashed".
 
 Current daemon failure is effectively fail-open while the process is down. A
 future hardening milestone should decide whether fail-closed behavior is
