@@ -16,13 +16,15 @@ RestartSec=2s
 # The daemon must run as root: fanotify permission marks require
 # CAP_SYS_ADMIN, and it reads credential files under user homes (often
 # mode 0700) to canonicalize protected paths, which needs
-# CAP_DAC_READ_SEARCH. Everything else is stripped.
+# CAP_DAC_READ_SEARCH. Process identity collection reads /proc/<pid>/exe for
+# user processes, which can require CAP_SYS_PTRACE on hardened hosts.
+# Everything else is stripped.
 #
 # IMPORTANT: enforcement depends on CAP_SYS_ADMIN. If you tighten the
 # capability set or syscall filter further, re-verify that
 # fanotify_init()/fanotify_mark() still succeed on the target kernel.
 NoNewPrivileges=yes
-CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_READ_SEARCH CAP_SYS_PTRACE
 AmbientCapabilities=
 UMask=0027
 
@@ -65,7 +67,7 @@ SystemCallFilter=fanotify_init fanotify_mark
 # below (this widens the attack surface of a root daemon, so enable it only
 # if you need the popups):
 #
-#   CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_SETUID CAP_SETGID CAP_SETPCAP CAP_AUDIT_WRITE
+#   CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_READ_SEARCH CAP_SYS_PTRACE CAP_DAC_OVERRIDE CAP_SETUID CAP_SETGID CAP_SETPCAP CAP_AUDIT_WRITE
 #   SystemCallFilter=@system-service @setuid
 #   # remove MemoryDenyWriteExecute (PAM modules may need W+X)
 

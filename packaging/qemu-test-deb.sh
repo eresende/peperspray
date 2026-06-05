@@ -4,7 +4,7 @@ set -eu
 usage() {
     cat <<'USAGE'
 Usage:
-  packaging/qemu-test-deb.sh --image /path/to/ubuntu-24.04-server-cloudimg-amd64.img [--deb target/debian/peperspray_0.1.0_amd64.deb]
+  packaging/qemu-test-deb.sh --image /path/to/ubuntu-24.04-server-cloudimg-amd64.img [--deb target/debian/peperspray_0.1.1_amd64.deb]
 
 Environment overrides:
   QEMU_MEMORY       VM memory in MB. Default: 2048
@@ -17,7 +17,7 @@ USAGE
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 IMAGE=""
-DEB="$ROOT_DIR/target/debian/peperspray_0.1.0_amd64.deb"
+DEB="$ROOT_DIR/target/debian/peperspray_0.1.1_amd64.deb"
 MEMORY="${QEMU_MEMORY:-2048}"
 CPUS="${QEMU_CPUS:-2}"
 SSH_PORT="${QEMU_SSH_PORT:-2222}"

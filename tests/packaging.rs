@@ -6,7 +6,7 @@ fn debian_control_declares_package_metadata() {
     let control = std::fs::read_to_string("packaging/deb/control").expect("control should exist");
 
     assert!(control.contains("Package: peperspray"));
-    assert!(control.contains("Version: 0.1.0"));
+    assert!(control.contains("Version: 0.1.1"));
     assert!(control.contains("Architecture: amd64"));
     assert!(control.contains("Depends: systemd, logrotate"));
     assert!(control.contains("Recommends: libnotify-bin"));
@@ -147,7 +147,7 @@ fn qemu_rpm_test_exercises_lifecycle_and_reinstall_repair() {
         "sudo dnf install -y /tmp/peperspray.rpm",
         "checking reinstall permission repair",
         "sudo rpm -Uvh --replacepkgs /tmp/peperspray.rpm",
-        "peperspray-0.1.0-1.fc44.x86_64.rpm",
+        "peperspray-0.1.1-1.fc44.x86_64.rpm",
         "sudo dnf remove -y peperspray",
         "test \"$(sudo stat -c %U:%G /var/log/peperspray)\" = \"root:root\"",
     ] {
@@ -246,12 +246,17 @@ fn systemd_unit_applies_sandboxing() {
         );
     }
 
-    assert!(
-        unit.lines().any(|line| line
-            .trim()
-            .starts_with("CapabilityBoundingSet=CAP_SYS_ADMIN")),
-        "systemd unit should restrict the capability bounding set to CAP_SYS_ADMIN"
-    );
+    let capability_line = unit
+        .lines()
+        .find(|line| line.trim().starts_with("CapabilityBoundingSet="))
+        .expect("systemd unit should restrict the capability bounding set");
+
+    for capability in ["CAP_SYS_ADMIN", "CAP_DAC_READ_SEARCH", "CAP_SYS_PTRACE"] {
+        assert!(
+            capability_line.contains(capability),
+            "systemd unit should keep {capability} for fanotify and process inspection"
+        );
+    }
 
     // The guard must come back after a clean stop/kill, not only on failure,
     // otherwise the host is left unprotected.

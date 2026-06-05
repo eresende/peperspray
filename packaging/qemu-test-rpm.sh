@@ -4,7 +4,7 @@ set -eu
 usage() {
     cat <<'USAGE'
 Usage:
-  packaging/qemu-test-rpm.sh --image /path/to/fedora-cloud-base.qcow2 [--rpm target/rpm/RPMS/x86_64/peperspray-0.1.0-1.fc44.x86_64.rpm]
+  packaging/qemu-test-rpm.sh --image /path/to/fedora-cloud-base.qcow2 [--rpm target/rpm/RPMS/x86_64/peperspray-0.1.1-1.fc44.x86_64.rpm]
 
 Environment overrides:
   QEMU_MEMORY       VM memory in MB. Default: 2048

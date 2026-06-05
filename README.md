@@ -141,10 +141,16 @@ integration behavior.
 
 ## Configuration
 
-During development, the default config path is:
+The installed CLI and daemon default to the system config path:
 
 ```text
-examples/config.toml
+/etc/peperspray/config.toml
+```
+
+For local development examples, pass an explicit config path:
+
+```sh
+cargo run -- status --config examples/config.toml
 ```
 
 A typical config looks like this:
@@ -401,8 +407,8 @@ early at 10 MiB, keeps 14 rotations, and compresses older logs.
 
 ```sh
 packaging/build-deb.sh
-cp ./target/debian/peperspray_0.1.0_amd64.deb /tmp/
-sudo apt install /tmp/peperspray_0.1.0_amd64.deb
+cp ./target/debian/peperspray_0.1.1_amd64.deb /tmp/
+sudo apt install /tmp/peperspray_0.1.1_amd64.deb
 sudo apt remove peperspray
 sudo apt purge peperspray
 ```
@@ -663,8 +669,8 @@ Official releases are published by the GitHub Actions release workflow.
 To publish from a tag:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 The release version must match `Cargo.toml` without the leading `v`. The

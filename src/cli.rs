@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use uuid::Uuid;
 
-pub const DEFAULT_CONFIG_PATH: &str = "examples/config.toml";
-pub const DEFAULT_LOG_FILE: &str = "./events.jsonl";
+pub const DEFAULT_CONFIG_PATH: &str = "/etc/peperspray/config.toml";
+pub const DEFAULT_LOG_FILE: &str = "/var/log/peperspray/events.jsonl";
 
 #[derive(Debug, clap::Parser)]
 #[command(name = "peperspray")]
@@ -169,4 +169,15 @@ pub enum ServiceCommand {
     Start,
     Stop,
     Restart,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_defaults_use_installed_paths() {
+        assert_eq!(DEFAULT_CONFIG_PATH, "/etc/peperspray/config.toml");
+        assert_eq!(DEFAULT_LOG_FILE, "/var/log/peperspray/events.jsonl");
+    }
 }
