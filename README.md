@@ -348,6 +348,8 @@ throttled per user, executable, protected group, and operation for five minutes
 to avoid repeated popups from noisy tools. Denies are still blocked and logged
 if desktop notifications are unavailable.
 
+![Desktop notification for a blocked credential read](assets/notification.png)
+
 To run the ignored privileged fanotify tests on a Linux host:
 
 ```sh
@@ -504,6 +506,8 @@ cargo run -- logs --log-file ./events.jsonl --follow
 cargo run -- logs --log-file ./events.jsonl --json
 ```
 
+![Terminal log entry showing a denied credential read](assets/log_example.png)
+
 ### Explain one event
 
 ```sh
@@ -512,6 +516,8 @@ cargo run -- why last --log-file ./events.jsonl
 cargo run -- why last --decision deny --log-file ./events.jsonl
 cargo run -- why <event-id> --log-file ./events.jsonl --json
 ```
+
+![Detailed explanation for a denied credential access event](assets/denied_access_message.png)
 
 ### Review learned accesses
 
@@ -650,13 +656,31 @@ The current code is organized around the planned backend split:
 `src/main.rs` is intentionally kept as a thin dispatcher so the portable policy,
 logging, setup, status, and review behavior remains easier to test in isolation.
 
+## Releases
+
+Official releases are published by the GitHub Actions release workflow.
+
+To publish from a tag:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release version must match `Cargo.toml` without the leading `v`. The
+workflow runs formatting, tests, clippy, builds the Linux x86_64 binaries,
+builds the Debian package, builds the Fedora/RHEL-family RPM package, and
+publishes those files as GitHub Release assets.
+
+The workflow can also be run manually from GitHub Actions with an explicit
+version and prerelease flag.
+
 ## Pending Milestones / Tasks
 
 Suggested next milestones:
 
 1. Validate RPM package lifecycle coverage in a booted Fedora/RHEL-family VM.
-2. Add release documentation.
-3. Add deeper tamper-resistance hardening for config, logs, and daemon
+2. Add deeper tamper-resistance hardening for config, logs, and daemon
    self-protection.
 
 ## Current MVP Boundary

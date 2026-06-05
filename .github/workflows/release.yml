@@ -1,0 +1,175 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without the leading v, for example 0.1.0"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark the GitHub release as a prerelease"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build-deb:
+    name: Build Debian package
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Cargo version
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo_version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "peperspray") | .version')"
+          if [ "$cargo_version" != "${{ steps.version.outputs.version }}" ]; then
+            echo "Cargo.toml version $cargo_version does not match release version ${{ steps.version.outputs.version }}" >&2
+            exit 1
+          fi
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Run clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Build Debian package
+        env:
+          PEPERSPRAY_VERSION: ${{ steps.version.outputs.version }}
+          PEPERSPRAY_ARCH: amd64
+        run: packaging/build-deb.sh
+
+      - name: Package release binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/release-archive/peperspray-${{ steps.version.outputs.version }}-linux-x86_64
+          cp target/release/peperspray target/release/pepersprayd target/release-archive/peperspray-${{ steps.version.outputs.version }}-linux-x86_64/
+          cp README.md LICENSE-MIT LICENSE-APACHE target/release-archive/peperspray-${{ steps.version.outputs.version }}-linux-x86_64/
+          tar -C target/release-archive -czf target/peperspray-${{ steps.version.outputs.version }}-linux-x86_64.tar.gz peperspray-${{ steps.version.outputs.version }}-linux-x86_64
+
+      - name: Upload Debian and binary artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-and-binaries
+          path: |
+            target/debian/*.deb
+            target/peperspray-*-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+  build-rpm:
+    name: Build RPM package
+    runs-on: ubuntu-24.04
+    container: fedora:44
+
+    steps:
+      - name: Install build tools
+        run: dnf install -y git rpm-build systemd-rpm-macros rust cargo gcc make findutils jq
+
+      - uses: actions/checkout@v4
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Cargo version
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo_version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "peperspray") | .version')"
+          if [ "$cargo_version" != "${{ steps.version.outputs.version }}" ]; then
+            echo "Cargo.toml version $cargo_version does not match release version ${{ steps.version.outputs.version }}" >&2
+            exit 1
+          fi
+
+      - name: Build RPM package
+        env:
+          PEPERSPRAY_VERSION: ${{ steps.version.outputs.version }}
+          PEPERSPRAY_RELEASE: 1
+        run: packaging/build-rpm.sh
+
+      - name: Upload RPM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm
+          path: target/rpm/RPMS/**/*.rpm
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    runs-on: ubuntu-24.04
+    needs:
+      - build-deb
+      - build-rpm
+
+    steps:
+      - name: Resolve release metadata
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+            tag="v$version"
+            prerelease="${{ inputs.prerelease }}"
+          else
+            tag="$GITHUB_REF_NAME"
+            version="${tag#v}"
+            prerelease=false
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List release assets
+        run: find dist -maxdepth 3 -type f -print | sort
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: peperspray ${{ steps.release.outputs.version }}
+          prerelease: ${{ steps.release.outputs.prerelease }}
+          generate_release_notes: true
+          files: dist/**
