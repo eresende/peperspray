@@ -336,6 +336,7 @@ fn build_access_event(
             cmdline: process_info.cmdline,
             parent_chain: process_info.parent_chain,
             target_path: paths::normalize_path(&target_path),
+            target_file_identity: None,
             operation: Operation::OpenRead,
         });
     }
@@ -351,6 +352,7 @@ fn build_access_event(
         cmdline: Vec::new(),
         parent_chain: Vec::new(),
         target_path: paths::normalize_path(&target_path),
+        target_file_identity: None,
         operation: Operation::OpenRead,
     })
 }

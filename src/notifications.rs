@@ -185,6 +185,7 @@ mod tests {
             cmdline: Vec::new(),
             parent_chain: Vec::new(),
             target_path: PathBuf::from(target_path),
+            target_file_identity: None,
             operation: Operation::OpenRead,
         }
     }

@@ -133,8 +133,9 @@ fn run_fanotify_loop(
 ) -> anyhow::Result<()> {
     let fanotify = fanotify::FanotifyProbe::new()
         .context("failed to initialize fanotify permission listener")?;
+    let mark_paths = fanotify_mark_paths(paths);
 
-    for path in paths {
+    for path in &mark_paths {
         fanotify
             .mark_path(path)
             .with_context(|| format!("failed to mark {} for fanotify", path.display()))?;
@@ -147,12 +148,15 @@ fn run_fanotify_loop(
             format!(
                 "fanotify loop started fd {} for {} protected paths",
                 fanotify.raw_fd(),
-                paths.len()
+                mark_paths.len()
             ),
         ),
     )?;
 
-    println!("fanotify loop started for {} protected paths", paths.len());
+    println!(
+        "fanotify loop started for {} protected paths",
+        mark_paths.len()
+    );
 
     let mut deny_notifier = DenyNotifier::default();
 
@@ -200,6 +204,48 @@ fn configured_fanotify_paths(config: &config::Config) -> Vec<PathBuf> {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
+}
+
+fn fanotify_mark_paths(paths: &[PathBuf]) -> Vec<PathBuf> {
+    paths
+        .iter()
+        .flat_map(|path| existing_path_and_descendants(path))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn existing_path_and_descendants(path: &Path) -> Vec<PathBuf> {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return Vec::new();
+    };
+
+    let mut paths = vec![path.to_path_buf()];
+
+    if metadata.is_dir() {
+        collect_existing_descendants(path, &mut paths);
+    }
+
+    paths
+}
+
+fn collect_existing_descendants(directory: &Path, paths: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+
+        paths.push(path.clone());
+
+        if metadata.is_dir() {
+            collect_existing_descendants(&path, paths);
+        }
+    }
 }
 
 pub fn handle_permission_event(
@@ -378,5 +424,23 @@ groups = ["missing"]
         let paths = configured_fanotify_paths(&config);
 
         assert_eq!(paths, vec![protected]);
+    }
+
+    #[test]
+    fn fanotify_mark_paths_include_existing_descendants() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let protected = dir.path().join("protected");
+        let nested = protected.join("nested");
+        let secret = nested.join("secret.txt");
+
+        std::fs::create_dir(&protected).expect("protected dir should be created");
+        std::fs::create_dir(&nested).expect("nested dir should be created");
+        std::fs::write(&secret, "secret").expect("secret should be written");
+
+        let paths = fanotify_mark_paths(std::slice::from_ref(&protected));
+
+        assert!(paths.contains(&protected));
+        assert!(paths.contains(&nested));
+        assert!(paths.contains(&secret));
     }
 }

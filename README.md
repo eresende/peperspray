@@ -10,7 +10,7 @@ complete unless an explicit policy rule allows the access.
 This repository is currently a **personal production / dogfood MVP** for Ubuntu
 24.04 developer workstations. It includes host-level read enforcement, packaging,
 service management, logs, policy review, and desktop notifications, while still
-carrying documented hardening gaps around path identity and tamper resistance:
+carrying documented hardening gaps around tamper resistance:
 
 - TOML configuration parsing and logical validation
 - protected users and protected credential path groups
@@ -69,8 +69,8 @@ Implemented policy and CLI capabilities:
   - duplicate allow-rule names
   - duplicate allow-rule behavior
 - Learn/enforce policy decisions
-- Protected path matching using component-aware `Path::starts_with`, with
-  project-root dotenv filename matching for relative dotenv presets
+- Protected path matching using component-aware `Path::starts_with`, plus
+  inode/device identity matching for protected file aliases
 - Path normalization for config and access events
 - `~` expansion for protected group paths
 - Optional `operation` field on allow rules
@@ -95,8 +95,8 @@ Implemented policy and CLI capabilities:
   and FAN_ALLOW/FAN_DENY responses
 - Privileged fanotify integration tests proving learn/enforce read behavior on
   Ubuntu 24.04
-- Privileged path-identity regression tests documenting current hard-link,
-  bind-mount, and mount-namespace limitations
+- Privileged path-identity regression tests proving hard-link, bind-mount, and
+  mount-namespace aliases are blocked
 - Service management wrappers around `systemctl`
 - Installed-layout scaffolding under `packaging/`
 - Local `.deb` package build script and Debian maintainer scripts
@@ -107,7 +107,7 @@ Implemented policy and CLI capabilities:
   remove, and purge on Ubuntu 24.04
 - QEMU privileged integration runner for fanotify enforcement and path-identity
   regression tests on Ubuntu 24.04
-- Documented path semantics and known hard-link/bind-mount limitations
+- Documented path semantics and inode/device alias hardening
 
 Not implemented yet:
 
@@ -346,9 +346,9 @@ cargo test --test privileged_path_identity --no-run
 sudo "$(find target/debug/deps -maxdepth 1 -type f -executable -name 'privileged_path_identity-*' | head -n1)" --ignored --nocapture
 ```
 
-These tests intentionally document current hard-link, bind-mount, and
-mount-namespace alias behavior. If future path-identity hardening blocks those
-aliases, update the expectations and `docs/PATH_SEMANTICS.md` together.
+These tests assert that hard-link, bind-mount, and mount-namespace aliases for
+protected files are blocked. If path-identity behavior changes, update the
+expectations and `docs/PATH_SEMANTICS.md` together.
 
 To run both ignored privileged test suites in an isolated Ubuntu 24.04 QEMU VM:
 
@@ -609,15 +609,16 @@ logging, setup, status, and review behavior remains easier to test in isolation.
 
 Suggested next milestones:
 
-1. Add inode/device path-identity hardening for protected files.
-2. Add package upgrade smoke coverage for permission repair from older installs.
-3. Add release documentation.
+1. Add package upgrade smoke coverage for permission repair from older installs.
+2. Add release documentation.
+3. Add deeper tamper-resistance hardening for config, logs, and daemon
+   self-protection.
 
 ## Current MVP Boundary
 
 The current MVP is useful for personal production / dogfooding on Ubuntu 24.04
 and has a Linux `fanotify` loop validated by privileged integration tests, but
-it still has documented path-identity limitations.
+it still has documented tamper-resistance limitations.
 
 It can answer:
 
@@ -631,9 +632,9 @@ The daemon path can enforce:
 Block this real process before it reads the file.
 ```
 
-That boundary is suitable for personal dogfooding, but still needs path-identity
-hardening, especially around hard links, bind mounts, and mount namespaces,
-before it should be treated as high-assurance protection.
+That boundary is suitable for personal dogfooding, but it should not be treated
+as high-assurance protection against root compromise, daemon tampering, or
+periods where the daemon is not running.
 
 ## License
 

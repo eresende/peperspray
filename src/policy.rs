@@ -1,7 +1,8 @@
 use crate::config::{AllowRule, Config, Mode};
-use crate::event::AccessEvent;
+use crate::event::{AccessEvent, FileIdentity};
 use crate::identity;
 use serde::Serialize;
+use std::os::unix::fs::MetadataExt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "decision", rename_all = "lowercase")]
@@ -90,7 +91,9 @@ fn find_matching_protected_group(config: &Config, event: &AccessEvent) -> Option
         };
 
         for protected_path in &group.paths {
-            if path_matches_protected_path(&event.target_path, protected_path) {
+            if path_matches_protected_path(&event.target_path, protected_path)
+                || identity_matches_protected_path(event.target_file_identity, protected_path)
+            {
                 return Some(group.name.clone());
             }
         }
@@ -149,12 +152,74 @@ fn path_matches_protected_path(
     target_path.starts_with(protected_path)
 }
 
+fn identity_matches_protected_path(
+    target_identity: Option<FileIdentity>,
+    protected_path: &std::path::Path,
+) -> bool {
+    let Some(target_identity) = target_identity else {
+        return false;
+    };
+
+    if protected_path.is_relative() {
+        return false;
+    }
+
+    identity_matches_existing_path(target_identity, protected_path).unwrap_or(false)
+}
+
+fn identity_matches_existing_path(
+    target_identity: FileIdentity,
+    protected_path: &std::path::Path,
+) -> std::io::Result<bool> {
+    let metadata = std::fs::symlink_metadata(protected_path)?;
+    let identity = FileIdentity {
+        dev: metadata.dev(),
+        ino: metadata.ino(),
+    };
+
+    if identity == target_identity {
+        return Ok(true);
+    }
+
+    if !metadata.is_dir() {
+        return Ok(false);
+    }
+
+    identity_matches_descendant(target_identity, protected_path)
+}
+
+fn identity_matches_descendant(
+    target_identity: FileIdentity,
+    directory: &std::path::Path,
+) -> std::io::Result<bool> {
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        let metadata = entry.metadata()?;
+        let identity = FileIdentity {
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+        };
+
+        if identity == target_identity {
+            return Ok(true);
+        }
+
+        if metadata.is_dir() && identity_matches_descendant(target_identity, &path)? {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::{AllowRule, Config, Mode, ProtectedPathGroup, ProtectedUser};
     use crate::event::Operation;
     use crate::process::ProcessChainEntry;
+    use std::os::unix::fs::MetadataExt;
     use std::path::PathBuf;
 
     fn parent_entry(exe: &str) -> ProcessChainEntry {
@@ -199,7 +264,17 @@ mod tests {
             cmdline: Vec::new(),
             parent_chain: Vec::new(),
             target_path: PathBuf::from(target_path),
+            target_file_identity: None,
             operation: Operation::OpenRead,
+        }
+    }
+
+    fn file_identity(path: &std::path::Path) -> FileIdentity {
+        let metadata = std::fs::metadata(path).expect("metadata should be readable");
+
+        FileIdentity {
+            dev: metadata.dev(),
+            ino: metadata.ino(),
         }
     }
 
@@ -452,7 +527,38 @@ mod tests {
     }
 
     #[test]
-    fn hard_link_outside_protected_directory_is_not_detected_by_path_policy() {
+    fn protects_hard_link_outside_protected_directory_when_identity_is_available() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let protected_dir = dir.path().join("protected");
+        let protected_file = protected_dir.join("secret");
+        let hard_link = dir.path().join("outside-secret");
+
+        std::fs::create_dir(&protected_dir).expect("protected dir should be created");
+        std::fs::write(&protected_file, "secret").expect("protected file should be written");
+        std::fs::hard_link(&protected_file, &hard_link).expect("hard link should be created");
+
+        let config = Config {
+            mode: Mode::Enforce,
+            users: vec![ProtectedUser {
+                uid: 1000,
+                groups: vec!["test".to_string()],
+            }],
+            protected_groups: vec![ProtectedPathGroup {
+                name: "test".to_string(),
+                paths: vec![protected_dir],
+            }],
+            allow_rules: Vec::new(),
+        };
+        let mut event = access_event("/usr/bin/python3", hard_link.to_str().unwrap());
+        event.target_file_identity = Some(file_identity(&hard_link));
+
+        let decision = decide(&config, &event);
+
+        assert!(matches!(decision, Decision::Deny { .. }));
+    }
+
+    #[test]
+    fn hard_link_outside_protected_directory_still_needs_identity_to_match() {
         let dir = tempfile::tempdir().expect("temp dir should be created");
         let protected_dir = dir.path().join("protected");
         let protected_file = protected_dir.join("secret");

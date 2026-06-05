@@ -195,8 +195,8 @@ fn setup_case() -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf, PathBuf) {
 }
 
 #[test]
-#[ignore = "requires root, Linux fanotify permission events, and documents a known limitation"]
-fn hard_link_alias_outside_marked_dir_is_currently_not_blocked() {
+#[ignore = "requires root and Linux fanotify permission events"]
+fn hard_link_alias_outside_marked_dir_is_blocked() {
     if skip_unless_root() {
         return;
     }
@@ -211,14 +211,14 @@ fn hard_link_alias_outside_marked_dir_is_currently_not_blocked() {
     let status = run_cat_with_timeout(&alias);
 
     assert!(
-        status.success(),
-        "hard-link alias was blocked; update path-identity docs/tests if hardening was added"
+        !status.success(),
+        "hard-link alias should be blocked by inode/device identity hardening"
     );
 }
 
 #[test]
 #[ignore = "requires root, Linux fanotify permission events, and mount permissions"]
-fn bind_mount_alias_outside_marked_dir_is_currently_not_blocked() {
+fn bind_mount_alias_outside_marked_dir_is_blocked() {
     if skip_unless_root() {
         return;
     }
@@ -236,14 +236,14 @@ fn bind_mount_alias_outside_marked_dir_is_currently_not_blocked() {
     let status = run_cat_with_timeout(&alias_dir.join("secret.txt"));
 
     assert!(
-        status.success(),
-        "bind-mount alias was blocked; update path-identity docs/tests if hardening was added"
+        !status.success(),
+        "bind-mount alias should be blocked by inode/device identity hardening"
     );
 }
 
 #[test]
 #[ignore = "requires root, Linux fanotify permission events, unshare, and mount permissions"]
-fn mount_namespace_bind_mount_alias_is_currently_not_blocked() {
+fn mount_namespace_bind_mount_alias_is_blocked() {
     if skip_unless_root() {
         return;
     }
@@ -281,19 +281,13 @@ fn mount_namespace_bind_mount_alias_is_currently_not_blocked() {
         return;
     };
 
-    if !status.success() {
-        if status.code() == Some(125) {
-            eprintln!("skipping namespace test; mount --bind failed inside namespace");
-            return;
-        }
-
-        panic!(
-            "mount-namespace bind alias was blocked or failed unexpectedly; update path-identity docs/tests if hardening was added"
-        );
+    if status.code() == Some(125) {
+        eprintln!("skipping namespace test; mount --bind failed inside namespace");
+        return;
     }
 
     assert!(
-        status.success(),
-        "mount-namespace bind alias was blocked; update path-identity docs/tests if hardening was added"
+        !status.success(),
+        "mount-namespace bind alias should be blocked by inode/device identity hardening"
     );
 }

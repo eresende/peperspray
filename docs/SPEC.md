@@ -53,13 +53,14 @@ the user's session bus when `notify-send` is available. Notifications are
 throttled per user, executable, protected group, and operation for five minutes.
 
 Privileged Linux integration tests on Ubuntu 24.04 start the daemon against
-temporary protected files, prove allowed/denied reads end to end, and document
-current hard-link, bind-mount, and mount-namespace path-identity limitations.
+temporary protected files, prove allowed/denied reads end to end, and verify
+that hard-link, bind-mount, and mount-namespace aliases are blocked by
+device/inode path-identity matching.
 
 Failure behavior is tracked separately in
 [FAILURE_BEHAVIOR.md](FAILURE_BEHAVIOR.md).
 
-Path behavior and known identity limitations are tracked in
+Path behavior and remaining identity caveats are tracked in
 [PATH_SEMANTICS.md](PATH_SEMANTICS.md).
 
 ## Test Plan
@@ -67,8 +68,8 @@ Path behavior and known identity limitations are tracked in
 - Unit-test policy matching for allowlist-first behavior, protected path expansion, process ancestry, and mode-specific decisions.
 - Integration-test Linux backend with temporary protected files to prove reads
   are allowed in learn mode and denied in enforce mode.
-- Run ignored privileged path-identity regressions for hard-link, bind-mount,
-  and mount-namespace alias behavior on dogfood hosts.
+- Run ignored privileged path-identity regressions to prove hard-link,
+  bind-mount, and mount-namespace aliases are blocked on dogfood hosts.
 - Verify logs contain executable, cmdline, cwd, parent chain, target path, decision, reason, datetime, and denied-event process snapshots.
 - Package-test `.deb` install, `systemd` startup, config permissions, log
   permissions, logrotate policy, service metadata, and clean uninstall behavior
@@ -104,11 +105,13 @@ The first enforcement milestone is intentionally narrow:
 
 - Linux `fanotify` read enforcement is the only planned blocking backend.
 - Policy identity is based on executable path, optional executable SHA-256
-  digest, UID, protected group, operation, and optional parent executable.
-  Stronger binary identity checks such as inode or signature matching are future
-  hardening.
-- Path behavior around hard links, bind mounts, and namespace boundaries needs
-  hardening before relying on the tool for high-assurance environments.
+  digest, UID, protected group, operation, optional parent executable, and, for
+  Linux fanotify events, target device/inode identity used to detect protected
+  file aliases.
+- Path-identity hardening marks existing protected descendants at daemon loop
+  startup. Large protected trees, newly created nested directories, and
+  rename-heavy workflows need additional scale and lifecycle coverage before
+  relying on the tool for high-assurance environments.
 - Learn mode is observational. It records accesses that would be denied but does
   not prevent credential reads.
 - If the daemon is not running, the current MVP cannot protect the host.

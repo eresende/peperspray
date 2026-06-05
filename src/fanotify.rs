@@ -1,4 +1,4 @@
-use crate::event::{AccessEvent, Operation};
+use crate::event::{AccessEvent, FileIdentity, Operation};
 use crate::paths;
 use crate::policy::Decision;
 use crate::process;
@@ -140,6 +140,8 @@ pub fn access_event_from_permission_event(
         .with_context(|| format!("failed to inspect process {}", event.pid))?;
     let target_path = std::fs::read_link(format!("/proc/self/fd/{}", event.target_fd))
         .with_context(|| format!("failed to resolve fanotify fd {}", event.target_fd))?;
+    let target_file_identity = file_identity_for_fd(event.target_fd)
+        .with_context(|| format!("failed to stat fanotify fd {}", event.target_fd))?;
 
     Ok(AccessEvent {
         pid: Some(process_info.pid),
@@ -149,7 +151,24 @@ pub fn access_event_from_permission_event(
         cmdline: process_info.cmdline,
         parent_chain: process_info.parent_chain,
         target_path: paths::normalize_path(&target_path),
+        target_file_identity: Some(target_file_identity),
         operation: Operation::OpenRead,
+    })
+}
+
+fn file_identity_for_fd(fd: RawFd) -> anyhow::Result<FileIdentity> {
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    let result = unsafe { libc::fstat(fd, stat.as_mut_ptr()) };
+
+    if result < 0 {
+        return Err(Into::into(std::io::Error::last_os_error()));
+    }
+
+    let stat = unsafe { stat.assume_init() };
+
+    Ok(FileIdentity {
+        dev: stat.st_dev,
+        ino: stat.st_ino,
     })
 }
 

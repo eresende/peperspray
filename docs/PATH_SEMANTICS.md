@@ -1,8 +1,8 @@
 # Path Semantics
 
 This document records the current path behavior for protected credential reads.
-The policy model is path-based today; future hardening may add inode, device, or
-content identity checks.
+The policy model uses normalized paths and, for Linux `fanotify` events,
+device/inode identity captured from the target file descriptor.
 
 ## Current Behavior
 
@@ -13,13 +13,23 @@ Protected group paths are expanded and normalized when the config is loaded:
 - Missing paths are kept as written.
 
 Access-event target paths are normalized before policy evaluation in the CLI and
-fanotify conversion paths. A protected absolute path matches when the normalized
-target path starts with the normalized protected path using component-aware
-`Path::starts_with`.
+fanotify conversion paths. A protected absolute path matches when either:
+
+- the normalized target path starts with the normalized protected path using
+  component-aware `Path::starts_with`; or
+- the event's target `(dev, ino)` identity matches the protected file, or a file
+  below a protected directory.
 
 Relative protected paths are only used for project dotenv presets. They match by
 filename, so a relative preset such as `.env` protects files named `.env`
-regardless of project directory.
+regardless of project directory. Relative protected paths do not participate in
+device/inode identity matching.
+
+When the daemon starts its fanotify loop, it marks each existing protected path
+and each existing descendant below protected directories. That gives the kernel a
+mark on existing protected files, so an access through a hard-link or bind-mount
+alias can still produce a permission event even when the alias path is outside
+the configured protected directory.
 
 ## Symlinks
 
@@ -38,34 +48,30 @@ the parent directory path still matches the protected prefix.
 ## Directory Rename
 
 Config paths are normalized at load time. If a protected directory is renamed
-after config load, the path-prefix policy may no longer match the renamed path.
-The fanotify mark may still refer to the marked filesystem object, but the
-policy layer currently reasons over paths, not persistent object identity.
-
-This must be tested before relying on rename behavior for enforcement.
+after config load, path-prefix matching follows the loaded path, not the new
+directory name. For existing protected files with fanotify marks, device/inode
+identity matching can still identify the underlying file object. Newly created
+or moved descendants after daemon startup need more coverage before relying on
+rename behavior for high-assurance enforcement.
 
 ## Hard Links
 
-Hard links are a known limitation. A file inside a protected directory can have a
-hard link outside that directory. Because the current policy model only checks
-path prefixes, an access through the outside hard-link path is not detected as
-protected.
+Hard-link aliases for existing protected files are blocked by device/inode
+identity matching. The privileged regression test
+`hard_link_alias_outside_marked_dir_is_blocked` covers this behavior end to end.
 
-The ignored privileged regression test
-`hard_link_alias_outside_marked_dir_is_currently_not_blocked` documents this
-current behavior end to end.
-
-Future hardening should consider matching device/inode identity for protected
-files or marking broader filesystem scopes and resolving object identity before
-policy evaluation.
+The current implementation relies on marks placed at daemon loop startup for
+existing protected descendants. New hard-link patterns created after startup
+should be covered by path-prefix behavior when the access path remains under a
+protected directory, but alias visibility outside the protected tree should be
+retested when broadening the creation/rename threat model.
 
 ## Bind Mounts And Namespaces
 
 Bind mounts and mount namespaces can present the same filesystem object under
-different paths, so path-prefix policy alone is insufficient. Current
-regression coverage documents that an alias outside the configured protected
-path can still be read when it is reached through a bind mount or through a bind
-mount created inside a separate mount namespace.
+different paths, so path-prefix policy alone is insufficient. The daemon records
+the target file's device/inode identity from the fanotify event and policy
+matching compares that identity to protected files.
 
 The ignored privileged tests are:
 
@@ -73,5 +79,14 @@ The ignored privileged tests are:
 - process mount namespace bind mount from protected directory to unprotected
   path
 
-Remaining hardening work should add inode/device identity tracking for protected
-files and then update these tests to assert the hardened behavior.
+Both tests assert that the alias read is denied.
+
+## Remaining Caveats
+
+- If the daemon is not running, the current MVP cannot protect the host.
+- Existing-descendant fanotify marks are collected when the daemon loop starts.
+  Large protected trees, newly created nested directories, and rename-heavy
+  workflows need additional scale and lifecycle coverage.
+- Device/inode identity hardens protected file aliasing. It is not a signature
+  check and does not defend against root compromise, kernel compromise, or a
+  privileged attacker that can stop or tamper with the daemon.

@@ -16,6 +16,12 @@ impl std::fmt::Display for Operation {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct FileIdentity {
+    pub dev: u64,
+    pub ino: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AccessEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -34,6 +40,10 @@ pub struct AccessEvent {
     pub parent_chain: Vec<ProcessChainEntry>,
 
     pub target_path: PathBuf,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_file_identity: Option<FileIdentity>,
+
     pub operation: Operation,
 }
 
