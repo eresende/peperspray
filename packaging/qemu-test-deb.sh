@@ -10,6 +10,7 @@ Environment overrides:
   QEMU_MEMORY       VM memory in MB. Default: 2048
   QEMU_CPUS         VM CPU count. Default: 2
   QEMU_SSH_PORT     Host SSH forwarding port. Default: 2222
+  QEMU_ACCEL        VM accelerator: auto, kvm, or tcg. Default: auto
   QEMU_EXTRA_ARGS   Extra args passed to qemu-system-x86_64
 USAGE
 }
@@ -20,6 +21,7 @@ DEB="$ROOT_DIR/target/debian/peperspray_0.1.0_amd64.deb"
 MEMORY="${QEMU_MEMORY:-2048}"
 CPUS="${QEMU_CPUS:-2}"
 SSH_PORT="${QEMU_SSH_PORT:-2222}"
+QEMU_ACCEL="${QEMU_ACCEL:-auto}"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -103,8 +105,28 @@ EOF
 qemu-img create -f qcow2 -F qcow2 -b "$IMAGE" "$VM_DISK" >/dev/null
 cloud-localds "$SEED_ISO" "$USER_DATA" "$META_DATA"
 
+case "$QEMU_ACCEL" in
+    auto)
+        if [ -e /dev/kvm ]; then
+            QEMU_ACCEL_ARGS="-enable-kvm"
+        else
+            QEMU_ACCEL_ARGS="-machine accel=tcg"
+        fi
+        ;;
+    kvm)
+        QEMU_ACCEL_ARGS="-enable-kvm"
+        ;;
+    tcg)
+        QEMU_ACCEL_ARGS="-machine accel=tcg"
+        ;;
+    *)
+        echo "invalid QEMU_ACCEL: $QEMU_ACCEL" >&2
+        exit 2
+        ;;
+esac
+
 qemu-system-x86_64 \
-    -enable-kvm \
+    $QEMU_ACCEL_ARGS \
     -m "$MEMORY" \
     -smp "$CPUS" \
     -drive "file=$VM_DISK,if=virtio,format=qcow2" \
@@ -142,17 +164,21 @@ $SSH_BASE 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/peperspra
 
 echo "checking installed files and service..."
 $SSH_BASE '
-set -eu
+set -eux
 command -v peperspray
 command -v pepersprayd
 test -f /etc/peperspray/config.toml
 test -f /etc/logrotate.d/peperspray
-test -f /var/log/peperspray/events.jsonl
-test -f /lib/systemd/system/pepersprayd.service
+sudo test -f /var/log/peperspray/events.jsonl
+test -f /usr/lib/systemd/system/pepersprayd.service
 test "$(stat -c %U:%G /etc/peperspray/config.toml)" = "root:root"
 test "$(stat -c %a /etc/peperspray/config.toml)" = "644"
 test "$(stat -c %U:%G /etc/logrotate.d/peperspray)" = "root:root"
 test "$(stat -c %a /etc/logrotate.d/peperspray)" = "644"
+test "$(sudo stat -c %U:%G /var/log/peperspray)" = "root:adm"
+test "$(sudo stat -c %a /var/log/peperspray)" = "750"
+test "$(sudo stat -c %U:%G /var/log/peperspray/events.jsonl)" = "root:adm"
+test "$(sudo stat -c %a /var/log/peperspray/events.jsonl)" = "640"
 sudo logrotate --debug /etc/logrotate.d/peperspray >/dev/null
 sudo systemctl daemon-reload
 sudo systemctl start pepersprayd.service

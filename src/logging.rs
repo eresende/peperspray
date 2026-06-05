@@ -4,8 +4,17 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
+
+/// Mode applied when the daemon (or CLI) first creates a decision/lifecycle log.
+///
+/// Decision records contain sensitive process context (cmdline, cwd, exe,
+/// parent chain, and target credential paths), so the audit log must not be
+/// world-readable. `0o640` keeps it readable only by the owner and group.
+/// This only affects newly created files; existing files keep their mode.
+const LOG_FILE_MODE: u32 = 0o640;
 
 #[derive(Debug, Serialize)]
 pub struct DecisionLog<'a> {
@@ -124,7 +133,11 @@ pub fn print_json_log(log: &DecisionLog) -> anyhow::Result<()> {
 pub fn append_jsonl_log(path: &Path, log: &DecisionLog) -> anyhow::Result<()> {
     let json = serde_json::to_string(&log)?;
 
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(LOG_FILE_MODE)
+        .open(path)?;
 
     writeln!(file, "{json}")?;
 
@@ -134,7 +147,11 @@ pub fn append_jsonl_log(path: &Path, log: &DecisionLog) -> anyhow::Result<()> {
 pub fn append_daemon_jsonl_log(path: &Path, log: &DaemonLog) -> anyhow::Result<()> {
     let json = serde_json::to_string(log)?;
 
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(LOG_FILE_MODE)
+        .open(path)?;
 
     writeln!(file, "{json}")?;
 
@@ -187,6 +204,26 @@ mod tests {
 
     const DECISION_LOG: &str = r#"{"event_id":"00000000-0000-0000-0000-000000000001","timestamp":"2026-01-01T00:00:00Z","uid":1000,"exe":"/usr/bin/python3","target_path":"/home/alice/.aws/credentials","operation":"open_read","decision":"allow","reason":"learn","matched_path_group":"aws","would_deny":true}"#;
     const DAEMON_LOG: &str = r#"{"event_id":"00000000-0000-0000-0000-000000000002","timestamp":"2026-01-01T00:00:01Z","component":"pepersprayd","level":"info","message":"daemon config loaded","config_path":"/etc/peperspray/config.toml","protected_users":1,"protected_groups":1,"allow_rules":0}"#;
+
+    #[test]
+    fn append_daemon_jsonl_log_creates_non_world_readable_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let path = dir.path().join("events.jsonl");
+
+        append_daemon_jsonl_log(&path, &DaemonLog::new("info", "started"))
+            .expect("daemon log should append");
+
+        let mode = std::fs::metadata(&path)
+            .expect("log metadata should be readable")
+            .permissions()
+            .mode()
+            & 0o777;
+
+        assert_eq!(mode, LOG_FILE_MODE);
+        assert_eq!(mode & 0o007, 0, "log must not be world-accessible");
+    }
 
     #[test]
     fn read_jsonl_logs_skips_daemon_lifecycle_records() {

@@ -10,6 +10,7 @@ Environment overrides:
   QEMU_MEMORY       VM memory in MB. Default: 2048
   QEMU_CPUS         VM CPU count. Default: 2
   QEMU_SSH_PORT     Host SSH forwarding port. Default: 2222
+  QEMU_ACCEL        VM accelerator: auto, kvm, or tcg. Default: auto
   QEMU_EXTRA_ARGS   Extra args passed to qemu-system-x86_64
 USAGE
 }
@@ -19,6 +20,7 @@ IMAGE=""
 MEMORY="${QEMU_MEMORY:-2048}"
 CPUS="${QEMU_CPUS:-2}"
 SSH_PORT="${QEMU_SSH_PORT:-2222}"
+QEMU_ACCEL="${QEMU_ACCEL:-auto}"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -115,8 +117,28 @@ EOF
 qemu-img create -f qcow2 -F qcow2 -b "$IMAGE" "$VM_DISK" >/dev/null
 cloud-localds "$SEED_ISO" "$USER_DATA" "$META_DATA"
 
+case "$QEMU_ACCEL" in
+    auto)
+        if [ -e /dev/kvm ]; then
+            QEMU_ACCEL_ARGS="-enable-kvm"
+        else
+            QEMU_ACCEL_ARGS="-machine accel=tcg"
+        fi
+        ;;
+    kvm)
+        QEMU_ACCEL_ARGS="-enable-kvm"
+        ;;
+    tcg)
+        QEMU_ACCEL_ARGS="-machine accel=tcg"
+        ;;
+    *)
+        echo "invalid QEMU_ACCEL: $QEMU_ACCEL" >&2
+        exit 2
+        ;;
+esac
+
 qemu-system-x86_64 \
-    -enable-kvm \
+    $QEMU_ACCEL_ARGS \
     -m "$MEMORY" \
     -smp "$CPUS" \
     -drive "file=$VM_DISK,if=virtio,format=qcow2" \

@@ -6,8 +6,68 @@ After=local-fs.target
 [Service]
 Type=simple
 ExecStart=/usr/bin/pepersprayd --config /etc/peperspray/config.toml --log-file /var/log/peperspray/events.jsonl
-Restart=on-failure
+
+# Restart the guard whenever it exits. on-failure would leave the host
+# unprotected after a clean stop/kill, so prefer always with a short backoff.
+Restart=always
 RestartSec=2s
+
+# --- Sandboxing ---------------------------------------------------------
+# The daemon must run as root: fanotify permission marks require
+# CAP_SYS_ADMIN, and it reads credential files under user homes (often
+# mode 0700) to canonicalize protected paths, which needs
+# CAP_DAC_READ_SEARCH. Everything else is stripped.
+#
+# IMPORTANT: enforcement depends on CAP_SYS_ADMIN. If you tighten the
+# capability set or syscall filter further, re-verify that
+# fanotify_init()/fanotify_mark() still succeed on the target kernel.
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_READ_SEARCH
+AmbientCapabilities=
+UMask=0027
+
+# Filesystem protection: read-only system, read-only homes (the daemon only
+# reads credential paths), writable audit log only.
+ProtectSystem=strict
+ReadWritePaths=/var/log/peperspray
+ProtectHome=read-only
+PrivateTmp=yes
+
+# Kernel, process, and control-group protection.
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+SystemCallArchitectures=native
+# Baseline allow-list for system services, plus the fanotify syscalls the
+# guard depends on. fanotify_init/fanotify_mark are classified under
+# @privileged and are NOT part of @system-service, so they must be allowed
+# explicitly or the daemon is killed with SIGSYS on startup.
+SystemCallFilter=@system-service
+SystemCallFilter=fanotify_init fanotify_mark
+
+# --- Desktop notifications (optional) -----------------------------------
+# Denied-read desktop notifications are best-effort. They are implemented by
+# spawning `runuser` to enter the target user's session bus, which requires
+# privilege-changing capabilities and PAM execution that this hardened
+# profile intentionally blocks. The daemon treats notification failures as
+# non-fatal: denies are still enforced and logged.
+#
+# To re-enable notifications, relax the sandbox by uncommenting the block
+# below (this widens the attack surface of a root daemon, so enable it only
+# if you need the popups):
+#
+#   CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_SETUID CAP_SETGID CAP_SETPCAP CAP_AUDIT_WRITE
+#   SystemCallFilter=@system-service @setuid
+#   # remove MemoryDenyWriteExecute (PAM modules may need W+X)
 
 [Install]
 WantedBy=multi-user.target

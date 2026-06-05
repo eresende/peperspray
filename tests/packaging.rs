@@ -76,6 +76,103 @@ fn logrotate_policy_rotates_runtime_log() {
 }
 
 #[test]
+fn logrotate_policy_recreates_log_without_world_access() {
+    let policy = std::fs::read_to_string("packaging/logrotate/peperspray")
+        .expect("logrotate policy should exist");
+
+    // The audit log carries sensitive process context, so rotation must not
+    // recreate it world-readable.
+    assert!(
+        policy.contains("create 0640 root adm"),
+        "logrotate should recreate the log as 0640 root adm"
+    );
+    assert!(!policy.contains("create 0644"));
+}
+
+#[test]
+fn postinst_creates_audit_log_without_world_access() {
+    let postinst =
+        std::fs::read_to_string("packaging/deb/postinst").expect("postinst should exist");
+
+    assert!(
+        postinst
+            .contains("install -o root -g adm -m 0640 /dev/null /var/log/peperspray/events.jsonl"),
+        "postinst should create the audit log as 0640 root adm"
+    );
+    assert!(
+        postinst.contains("install -d -o root -g adm -m 0750 /var/log/peperspray"),
+        "postinst should create the log dir as 0750 root adm"
+    );
+    assert!(
+        postinst.contains("chown root:adm /var/log/peperspray/events.jsonl"),
+        "postinst should repair existing audit log ownership"
+    );
+    assert!(
+        postinst.contains("chmod 0640 /var/log/peperspray/events.jsonl"),
+        "postinst should repair existing audit log mode"
+    );
+}
+
+#[test]
+fn postinst_repairs_preexisting_world_readable_audit_log() {
+    let postinst =
+        std::fs::read_to_string("packaging/deb/postinst").expect("postinst should exist");
+
+    let has_create_guard = postinst
+        .lines()
+        .any(|line| line.trim() == "if [ ! -e /var/log/peperspray/events.jsonl ]; then");
+    let has_unconditional_chmod = postinst
+        .lines()
+        .any(|line| line.trim() == "chmod 0640 /var/log/peperspray/events.jsonl");
+
+    assert!(
+        has_create_guard && has_unconditional_chmod,
+        "postinst must chmod the audit log even when it already exists"
+    );
+}
+
+#[test]
+fn systemd_unit_applies_sandboxing() {
+    let unit = std::fs::read_to_string("packaging/systemd/pepersprayd.service")
+        .expect("systemd unit should exist");
+
+    for directive in [
+        "NoNewPrivileges=yes",
+        "ProtectSystem=strict",
+        "ProtectHome=read-only",
+        "ReadWritePaths=/var/log/peperspray",
+        "SystemCallFilter=@system-service",
+        "UMask=0027",
+    ] {
+        assert!(
+            unit.lines().any(|line| line.trim() == directive),
+            "systemd unit should set {directive}"
+        );
+    }
+
+    assert!(
+        unit.lines().any(|line| line
+            .trim()
+            .starts_with("CapabilityBoundingSet=CAP_SYS_ADMIN")),
+        "systemd unit should restrict the capability bounding set to CAP_SYS_ADMIN"
+    );
+
+    // The guard must come back after a clean stop/kill, not only on failure,
+    // otherwise the host is left unprotected.
+    assert!(
+        unit.lines().any(|line| line.trim() == "Restart=always"),
+        "systemd unit should restart always"
+    );
+
+    assert!(
+        !unit
+            .lines()
+            .any(|line| line.trim().starts_with("ProtectProc=")),
+        "daemon must be able to inspect /proc/<pid> for non-root fanotify events"
+    );
+}
+
+#[test]
 fn systemd_unit_uses_valid_documentation_reference() {
     let unit = std::fs::read_to_string("packaging/systemd/pepersprayd.service")
         .expect("systemd unit should exist");
