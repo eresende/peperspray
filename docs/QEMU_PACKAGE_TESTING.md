@@ -1,7 +1,7 @@
 # QEMU Package Testing
 
-Use QEMU to validate the Debian package in a real booted Ubuntu system. This is
-the package lifecycle test that Docker cannot accurately cover because
+Use QEMU to validate Linux packages in real booted systems. These are package
+lifecycle tests that Docker cannot accurately cover because
 `pepersprayd` depends on systemd, root-owned service execution, fanotify, and
 normal `/etc` plus `/var/log` behavior.
 
@@ -19,13 +19,29 @@ Download an Ubuntu 24.04 cloud image:
 wget https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
 ```
 
-Build the local package:
+Build the local Debian package:
 
 ```sh
 packaging/build-deb.sh
 ```
 
-## Run
+Build the local RPM package on a Fedora/RHEL-family host with `rpmbuild`
+installed:
+
+```sh
+packaging/build-rpm.sh
+```
+
+Or build the RPM from an Ubuntu/Debian host through a Fedora container:
+
+```sh
+packaging/build-rpm-container.sh
+```
+
+The container build only produces the RPM artifact. Use the QEMU RPM smoke test
+below for systemd/package lifecycle validation.
+
+## Debian / Ubuntu Run
 
 ```sh
 packaging/qemu-test-deb.sh \
@@ -35,12 +51,13 @@ packaging/qemu-test-deb.sh \
 
 The script creates a temporary overlay under `target/qemu-deb-test`, boots the
 cloud image with SSH on `127.0.0.1:2222`, installs the package, checks service
-startup, verifies installed paths, runs remove, then runs purge.
+startup, verifies installed paths, simulates an upgrade from older log
+permissions, runs remove, then runs purge.
 
 The runner uses KVM when `/dev/kvm` is available and falls back to TCG
 otherwise. Set `QEMU_ACCEL=kvm` or `QEMU_ACCEL=tcg` to force one mode.
 
-## Checks
+## Debian / Ubuntu Checks
 
 The smoke test verifies:
 
@@ -52,8 +69,38 @@ The smoke test verifies:
 - `/var/log/peperspray/events.jsonl` exists as `root:adm` with mode `0640`.
 - `pepersprayd.service` is installed and can start under systemd.
 - `peperspray service status` can reach systemd.
+- Reinstalling the package repairs an old world-readable audit log and log
+  directory back to `root:adm`, `0750` for the directory, and `0640` for the
+  JSONL log.
 - `apt remove peperspray` removes binaries but leaves conffiles.
 - `apt purge peperspray` removes the config, logrotate policy, and runtime log.
+
+## RPM / Fedora Run
+
+Use a Fedora cloud image and the RPM package built by `packaging/build-rpm.sh`
+or `packaging/build-rpm-container.sh`:
+
+```sh
+packaging/qemu-test-rpm.sh \
+  --image ./Fedora-Cloud-Base.qcow2 \
+  --rpm ./target/rpm/RPMS/x86_64/peperspray-0.1.0-1.fc44.x86_64.rpm
+```
+
+The RPM smoke test verifies:
+
+- `/usr/bin/peperspray` and `/usr/bin/pepersprayd` are installed.
+- `/etc/peperspray/config.toml` exists as root-owned `0644`.
+- `/etc/logrotate.d/peperspray` exists as root-owned `0644` and passes
+  `logrotate --debug`.
+- `/var/log/peperspray` exists as `root:root` with mode `0750`.
+- `/var/log/peperspray/events.jsonl` exists as `root:root` with mode `0640`.
+- `pepersprayd.service` is installed and can start under systemd.
+- `peperspray service status` can reach systemd.
+- Reinstalling the package repairs an old world-readable audit log and log
+  directory back to `root:root`, `0750` for the directory, and `0640` for the
+  JSONL log.
+- `dnf remove peperspray` removes binaries, service metadata, and the runtime
+  log.
 
 ## Notes
 

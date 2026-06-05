@@ -29,7 +29,9 @@ When the daemon starts its fanotify loop, it marks each existing protected path
 and each existing descendant below protected directories. That gives the kernel a
 mark on existing protected files, so an access through a hard-link or bind-mount
 alias can still produce a permission event even when the alias path is outside
-the configured protected directory.
+the configured protected directory. This is intended for credential-sized
+protected paths such as key directories, token files, and dotenv files, not for
+arbitrary large application trees.
 
 ## Symlinks
 
@@ -85,8 +87,9 @@ Both tests assert that the alias read is denied.
 
 - If the daemon is not running, the current MVP cannot protect the host.
 - Existing-descendant fanotify marks are collected when the daemon loop starts.
-  Large protected trees, newly created nested directories, and rename-heavy
-  workflows need additional scale and lifecycle coverage.
+  The supported shape is small credential trees and individual secret files.
+  Newly created nested directories and rename-heavy workflows need additional
+  lifecycle coverage before relying on them for high-assurance enforcement.
 - Device/inode identity hardens protected file aliasing. It is not a signature
   check and does not defend against root compromise, kernel compromise, or a
   privileged attacker that can stop or tamper with the daemon.

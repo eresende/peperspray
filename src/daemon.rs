@@ -176,13 +176,22 @@ fn run_fanotify_loop(
                 &event,
                 Some(&mut deny_notifier),
             ) {
-                let _ = fanotify::deny_permission_event(fanotify.raw_fd(), &event);
+                let fallback = match config.mode {
+                    config::Mode::Learn => {
+                        let _ = fanotify::allow_permission_event(fanotify.raw_fd(), &event);
+                        "allowed"
+                    }
+                    config::Mode::Enforce => {
+                        let _ = fanotify::deny_permission_event(fanotify.raw_fd(), &event);
+                        "denied"
+                    }
+                };
                 let _ = append_lifecycle_log(
                     log_file,
                     DaemonLog::new(
                         "error",
                         format!(
-                            "failed to handle fanotify permission event pid={} fd={}: {error}",
+                            "failed to handle fanotify permission event pid={} fd={}; {fallback} by mode fallback: {error:#}",
                             event.pid, event.target_fd
                         ),
                     ),

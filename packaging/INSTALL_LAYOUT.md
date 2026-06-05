@@ -11,7 +11,7 @@ The intended Linux package layout is:
 /usr/lib/systemd/system/pepersprayd.service
 ```
 
-Ownership and permissions:
+Debian ownership and permissions:
 
 - `/etc/peperspray/`: `root:root`, `0755`
 - `/etc/peperspray/config.toml`: `root:root`, `0644` initially
@@ -20,6 +20,11 @@ Ownership and permissions:
 - `/var/log/peperspray/events.jsonl`: `root:adm`, `0640`, created by `pepersprayd`
 - `/usr/bin/peperspray`: `root:root`, executable
 - `/usr/bin/pepersprayd`: `root:root`, executable
+
+Debian packages use `root:adm` for `/var/log/peperspray` and
+`events.jsonl`. The RPM package uses `root:root` for the same paths so the local
+package does not depend on an `adm` group being present on Fedora/RHEL-family
+systems.
 
 The service runs as root by default because fanotify permission events and
 policy enforcement require elevated privileges. The systemd unit applies a
@@ -30,8 +35,9 @@ tighten the profile further.
 
 The audit log holds sensitive process context (command lines, working
 directories, executables, parent chains, and target credential paths), so it is
-restricted to `root:adm` with mode `0640` and is not world-readable. The
-daemon also creates the log with mode `0640` when it does not already exist.
+restricted to root-owned, non-world-readable permissions. Debian uses
+`root:adm` with mode `0640`; RPM uses `root:root` with mode `0640`. The daemon
+also creates the log with mode `0640` when it does not already exist.
 
 The package installs a logrotate policy for `/var/log/peperspray/events.jsonl`.
 It rotates daily, rotates early at 10 MiB, keeps 14 rotations, compresses older
@@ -49,6 +55,18 @@ Build a local package with:
 
 ```sh
 packaging/build-deb.sh
+```
+
+Build a local RPM package on Fedora/RHEL-family systems with:
+
+```sh
+packaging/build-rpm.sh
+```
+
+Build the RPM from a non-RPM host through a Fedora container with:
+
+```sh
+packaging/build-rpm-container.sh
 ```
 
 Install it with:
@@ -76,4 +94,5 @@ remove `/etc/peperspray/config.toml`, `/etc/logrotate.d/peperspray`, and
 `/var/log/peperspray/events.jsonl` during purge.
 
 For a repeatable VM smoke test of this lifecycle, see
-`docs/QEMU_PACKAGE_TESTING.md` and `packaging/qemu-test-deb.sh`.
+`docs/QEMU_PACKAGE_TESTING.md`, `packaging/qemu-test-deb.sh`, and
+`packaging/qemu-test-rpm.sh`.

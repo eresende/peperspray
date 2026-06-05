@@ -191,6 +191,13 @@ pub fn deny_permission_event(
     write_permission_response(fanotify_fd, event.target_fd, libc::FAN_DENY)
 }
 
+pub fn allow_permission_event(
+    fanotify_fd: RawFd,
+    event: &FanotifyPermissionEvent,
+) -> anyhow::Result<()> {
+    write_permission_response(fanotify_fd, event.target_fd, libc::FAN_ALLOW)
+}
+
 fn response_code_for_decision(decision: &Decision) -> u32 {
     match decision {
         Decision::Allow { .. } => libc::FAN_ALLOW,

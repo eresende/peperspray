@@ -8,13 +8,15 @@ Default posture is zero-trust: protected credential reads are denied in enforce 
 
 ## Key Design
 
-- `pepersprayd` runs as a root-owned `systemd` service on Ubuntu 24.04.
+- `pepersprayd` runs as a root-owned `systemd` service on Linux systems with
+  fanotify permission-event support.
 - `peperspray` CLI manages setup, status, mode changes, logs, test access, and policy review.
 - Core logic is platform-neutral: policy parsing, access decisions, process metadata, logs, and CLI models.
 - Linux backend translates `fanotify` events into generic access events: PID, UID, executable, cmdline, cwd, parent chain, target path, and operation.
-- Config lives at `/etc/peperspray/config.toml`; logs live under `/var/log/peperspray/` with root-owned permissions.
-- Installed packages include log rotation for runtime logs and best-effort
-  desktop notifications for denied reads.
+- Config lives at `/etc/peperspray/config.toml`; logs live under
+  `/var/log/peperspray/` with root-owned permissions.
+- Installed `.deb` and RPM packages include log rotation for runtime logs and
+  best-effort desktop notifications for denied reads.
 
 ## Policy Behavior
 
@@ -48,6 +50,9 @@ existing protected paths from the config, convert `FAN_OPEN_PERM` metadata into
 the portable `AccessEvent` model, and map policy decisions to `FAN_ALLOW` or
 `FAN_DENY` responses.
 
+If fanotify event handling fails before policy evaluation, learn mode allows by
+fallback and records a daemon error; enforce mode denies by fallback.
+
 In enforce mode, denied reads trigger best-effort desktop notifications through
 the user's session bus when `notify-send` is available. Notifications are
 throttled per user, executable, protected group, and operation for five minutes.
@@ -74,10 +79,15 @@ Path behavior and remaining identity caveats are tracked in
 - Package-test `.deb` install, `systemd` startup, config permissions, log
   permissions, logrotate policy, service metadata, and clean uninstall behavior
   on Ubuntu 24.04.
+- Package-test RPM install, `systemd` startup, config permissions, log
+  permissions, logrotate policy, service metadata, reinstall permission repair,
+  and clean uninstall behavior on Fedora/RHEL-family systems.
 
 ## Assumptions
 
-- MVP targets Ubuntu 24.04 developer workstations only.
+- MVP targets Linux developer workstations with fanotify permission-event
+  support. Ubuntu 24.04 currently has the deepest privileged test coverage;
+  Fedora/RHEL-family systems have RPM packaging and a QEMU lifecycle runner.
 - macOS and Windows are future ports; the initial implementation keeps backend boundaries clean but only ships the Linux backend.
 - The product prioritizes blocking credential reads over fleet management, SIEM integrations, or advanced tamper resistance in v1.
 
@@ -109,9 +119,10 @@ The first enforcement milestone is intentionally narrow:
   Linux fanotify events, target device/inode identity used to detect protected
   file aliases.
 - Path-identity hardening marks existing protected descendants at daemon loop
-  startup. Large protected trees, newly created nested directories, and
-  rename-heavy workflows need additional scale and lifecycle coverage before
-  relying on the tool for high-assurance environments.
+  startup. The supported shape is small credential trees and individual secret
+  files. Newly created nested directories and rename-heavy workflows need
+  additional lifecycle coverage before relying on the tool for high-assurance
+  environments.
 - Learn mode is observational. It records accesses that would be denied but does
   not prevent credential reads.
 - If the daemon is not running, the current MVP cannot protect the host.

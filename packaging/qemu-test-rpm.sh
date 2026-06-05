@@ -4,12 +4,12 @@ set -eu
 usage() {
     cat <<'USAGE'
 Usage:
-  packaging/qemu-test-deb.sh --image /path/to/ubuntu-24.04-server-cloudimg-amd64.img [--deb target/debian/peperspray_0.1.0_amd64.deb]
+  packaging/qemu-test-rpm.sh --image /path/to/fedora-cloud-base.qcow2 [--rpm target/rpm/RPMS/x86_64/peperspray-0.1.0-1.fc44.x86_64.rpm]
 
 Environment overrides:
   QEMU_MEMORY       VM memory in MB. Default: 2048
   QEMU_CPUS         VM CPU count. Default: 2
-  QEMU_SSH_PORT     Host SSH forwarding port. Default: 2222
+  QEMU_SSH_PORT     Host SSH forwarding port. Default: 2223
   QEMU_ACCEL        VM accelerator: auto, kvm, or tcg. Default: auto
   QEMU_EXTRA_ARGS   Extra args passed to qemu-system-x86_64
 USAGE
@@ -17,10 +17,10 @@ USAGE
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 IMAGE=""
-DEB="$ROOT_DIR/target/debian/peperspray_0.1.0_amd64.deb"
+RPM=""
 MEMORY="${QEMU_MEMORY:-2048}"
 CPUS="${QEMU_CPUS:-2}"
-SSH_PORT="${QEMU_SSH_PORT:-2222}"
+SSH_PORT="${QEMU_SSH_PORT:-2223}"
 QEMU_ACCEL="${QEMU_ACCEL:-auto}"
 
 while [ "$#" -gt 0 ]; do
@@ -29,8 +29,8 @@ while [ "$#" -gt 0 ]; do
             IMAGE="${2:-}"
             shift 2
             ;;
-        --deb)
-            DEB="${2:-}"
+        --rpm)
+            RPM="${2:-}"
             shift 2
             ;;
         -h|--help)
@@ -51,6 +51,10 @@ if [ -z "$IMAGE" ]; then
     exit 2
 fi
 
+if [ -z "$RPM" ]; then
+    RPM="$(find "$ROOT_DIR/target/rpm/RPMS" -type f -name 'peperspray-*.rpm' 2>/dev/null | head -n1 || true)"
+fi
+
 for tool in qemu-system-x86_64 qemu-img cloud-localds ssh scp ssh-keygen; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "missing required tool: $tool" >&2
@@ -63,16 +67,15 @@ if [ ! -f "$IMAGE" ]; then
     exit 1
 fi
 
-if [ ! -f "$DEB" ]; then
-    echo "deb not found: $DEB" >&2
-    echo "run packaging/build-deb.sh first" >&2
+if [ -z "$RPM" ] || [ ! -f "$RPM" ]; then
+    echo "rpm not found; pass --rpm or run packaging/build-rpm.sh first" >&2
     exit 1
 fi
 
 IMAGE="$(cd "$(dirname "$IMAGE")" && pwd)/$(basename "$IMAGE")"
-DEB="$(cd "$(dirname "$DEB")" && pwd)/$(basename "$DEB")"
+RPM="$(cd "$(dirname "$RPM")" && pwd)/$(basename "$RPM")"
 
-WORK_DIR="$ROOT_DIR/target/qemu-deb-test"
+WORK_DIR="$ROOT_DIR/target/qemu-rpm-test"
 VM_DISK="$WORK_DIR/disk.qcow2"
 SEED_ISO="$WORK_DIR/seed.iso"
 SSH_KEY="$WORK_DIR/id_ed25519"
@@ -87,8 +90,8 @@ ssh-keygen -q -t ed25519 -N "" -f "$SSH_KEY"
 cat > "$USER_DATA" <<EOF
 #cloud-config
 users:
-  - name: ubuntu
-    groups: sudo
+  - name: fedora
+    groups: wheel
     shell: /bin/bash
     sudo: ALL=(ALL) NOPASSWD:ALL
     ssh_authorized_keys:
@@ -98,8 +101,8 @@ package_update: false
 EOF
 
 cat > "$META_DATA" <<EOF
-instance-id: peperspray-deb-test
-local-hostname: peperspray-deb-test
+instance-id: peperspray-rpm-test
+local-hostname: peperspray-rpm-test
 EOF
 
 qemu-img create -f qcow2 -F qcow2 -b "$IMAGE" "$VM_DISK" >/dev/null
@@ -143,7 +146,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-SSH_BASE="ssh -i $SSH_KEY -p $SSH_PORT -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 ubuntu@127.0.0.1"
+SSH_BASE="ssh -i $SSH_KEY -p $SSH_PORT -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 fedora@127.0.0.1"
 SCP_BASE="scp -i $SSH_KEY -P $SSH_PORT -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
 echo "waiting for VM SSH on localhost:$SSH_PORT..."
@@ -157,10 +160,10 @@ while ! $SSH_BASE true >/dev/null 2>&1; do
 done
 
 echo "copying package..."
-$SCP_BASE "$DEB" ubuntu@127.0.0.1:/tmp/peperspray.deb >/dev/null
+$SCP_BASE "$RPM" fedora@127.0.0.1:/tmp/peperspray.rpm >/dev/null
 
 echo "installing package..."
-$SSH_BASE 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/peperspray.deb'
+$SSH_BASE 'sudo dnf install -y /tmp/peperspray.rpm'
 
 echo "checking installed files and service..."
 $SSH_BASE '
@@ -175,9 +178,9 @@ test "$(stat -c %U:%G /etc/peperspray/config.toml)" = "root:root"
 test "$(stat -c %a /etc/peperspray/config.toml)" = "644"
 test "$(stat -c %U:%G /etc/logrotate.d/peperspray)" = "root:root"
 test "$(stat -c %a /etc/logrotate.d/peperspray)" = "644"
-test "$(sudo stat -c %U:%G /var/log/peperspray)" = "root:adm"
+test "$(sudo stat -c %U:%G /var/log/peperspray)" = "root:root"
 test "$(sudo stat -c %a /var/log/peperspray)" = "750"
-test "$(sudo stat -c %U:%G /var/log/peperspray/events.jsonl)" = "root:adm"
+test "$(sudo stat -c %U:%G /var/log/peperspray/events.jsonl)" = "root:root"
 test "$(sudo stat -c %a /var/log/peperspray/events.jsonl)" = "640"
 sudo logrotate --debug /etc/logrotate.d/peperspray >/dev/null
 sudo systemctl daemon-reload
@@ -187,36 +190,26 @@ peperspray service status >/dev/null
 sudo systemctl stop pepersprayd.service
 '
 
-echo "checking upgrade permission repair..."
+echo "checking reinstall permission repair..."
 $SSH_BASE '
 set -eux
-sudo chown root:root /var/log/peperspray /var/log/peperspray/events.jsonl
 sudo chmod 0755 /var/log/peperspray
 sudo chmod 0644 /var/log/peperspray/events.jsonl
-sudo DEBIAN_FRONTEND=noninteractive dpkg -i /tmp/peperspray.deb
-test "$(sudo stat -c %U:%G /var/log/peperspray)" = "root:adm"
+sudo rpm -Uvh --replacepkgs /tmp/peperspray.rpm
+test "$(sudo stat -c %U:%G /var/log/peperspray)" = "root:root"
 test "$(sudo stat -c %a /var/log/peperspray)" = "750"
-test "$(sudo stat -c %U:%G /var/log/peperspray/events.jsonl)" = "root:adm"
+test "$(sudo stat -c %U:%G /var/log/peperspray/events.jsonl)" = "root:root"
 test "$(sudo stat -c %a /var/log/peperspray/events.jsonl)" = "640"
 '
 
 echo "checking remove behavior..."
 $SSH_BASE '
 set -eu
-sudo DEBIAN_FRONTEND=noninteractive apt-get remove -y peperspray
+sudo dnf remove -y peperspray
 test ! -e /usr/bin/peperspray
 test ! -e /usr/bin/pepersprayd
-test -e /etc/peperspray/config.toml
-test -e /etc/logrotate.d/peperspray
-'
-
-echo "checking purge behavior..."
-$SSH_BASE '
-set -eu
-sudo DEBIAN_FRONTEND=noninteractive apt-get purge -y peperspray
-test ! -e /etc/peperspray/config.toml
-test ! -e /etc/logrotate.d/peperspray
+test ! -e /usr/lib/systemd/system/pepersprayd.service
 test ! -e /var/log/peperspray/events.jsonl
 '
 
-echo "QEMU package smoke test passed."
+echo "QEMU RPM package smoke test passed."

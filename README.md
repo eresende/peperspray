@@ -8,9 +8,10 @@ events to detect protected credential-file reads and block them before they
 complete unless an explicit policy rule allows the access.
 
 This repository is currently a **personal production / dogfood MVP** for Ubuntu
-24.04 developer workstations. It includes host-level read enforcement, packaging,
-service management, logs, policy review, and desktop notifications, while still
-carrying documented hardening gaps around tamper resistance:
+24.04 and Fedora/RHEL-family developer workstations. It includes host-level read
+enforcement, packaging, service management, logs, policy review, and desktop
+notifications, while still carrying documented hardening gaps around tamper
+resistance:
 
 - TOML configuration parsing and logical validation
 - protected users and protected credential path groups
@@ -25,14 +26,15 @@ carrying documented hardening gaps around tamper resistance:
 - starter and interactive config generation through `setup`
 - human and JSON status output
 - root-owned Linux daemon with `fanotify` read enforcement
-- `.deb` packaging, systemd service, log rotation, and denied-access desktop
-  notifications
+- `.deb` and RPM packaging, systemd service, log rotation, and denied-access
+  desktop notifications
 
 ## Design Target
 
 The target product is described in [docs/SPEC.md](docs/SPEC.md). In short:
 
-- `pepersprayd` runs as a root-owned `systemd` service on Ubuntu 24.04.
+- `pepersprayd` runs as a root-owned `systemd` service on Linux systems with
+  fanotify permission-event support.
 - `peperspray` will manage setup, status, modes, logs, testing, and policy
   review.
 - Default posture is zero-trust in enforce mode: protected credential reads are
@@ -100,11 +102,14 @@ Implemented policy and CLI capabilities:
 - Service management wrappers around `systemctl`
 - Installed-layout scaffolding under `packaging/`
 - Local `.deb` package build script and Debian maintainer scripts
+- Local RPM package build script and RPM spec for Fedora/RHEL-family systems
+- Containerized RPM build wrapper for non-RPM hosts
 - Remove/purge behavior for the installed service, config, and runtime log
 - Installed logrotate policy for runtime log retention
 - Best-effort desktop notifications for denied reads with in-memory throttling
 - QEMU package lifecycle test for install, service startup, log permissions,
-  remove, and purge on Ubuntu 24.04
+  upgrade permission repair, remove, and purge on Ubuntu 24.04
+- QEMU RPM package lifecycle runner for Fedora/RHEL-family systems
 - QEMU privileged integration runner for fanotify enforcement and path-identity
   regression tests on Ubuntu 24.04
 - Documented path semantics and inode/device alias hardening
@@ -201,6 +206,13 @@ uid = 1000
 exe = "/usr/bin/ssh"
 path_group = "ssh"
 operation = "open_read"
+
+[[allow_rules]]
+name = "Allow Docker CLI"
+uid = 1000
+exe = "/usr/bin/docker"
+path_group = "docker"
+operation = "open_read"
 ```
 
 Policy fields:
@@ -240,6 +252,10 @@ logged with:
 ```
 
 In `enforce` mode, the same access is denied.
+
+If the daemon cannot inspect a short-lived process while handling a fanotify
+event, learn mode allows the event and writes a daemon error record; enforce
+mode keeps the conservative behavior and denies the event.
 
 ## CLI Usage
 
@@ -398,6 +414,26 @@ packaging/qemu-test-deb.sh --image ./noble-server-cloudimg-amd64.img
 See `docs/QEMU_PACKAGE_TESTING.md` for prerequisites, accelerator options, and
 exact checks.
 
+### Build a local RPM package
+
+Build directly on a Fedora/RHEL-family host with `rpmbuild`:
+
+```sh
+packaging/build-rpm.sh
+```
+
+Or build from an Ubuntu/Debian host through a Fedora container:
+
+```sh
+packaging/build-rpm-container.sh
+```
+
+Validate the RPM lifecycle in a QEMU Fedora VM:
+
+```sh
+packaging/qemu-test-rpm.sh --image ./Fedora-Cloud-Base.qcow2
+```
+
 ### Show policy status
 
 ```sh
@@ -535,6 +571,7 @@ Each decision event can include:
 - `cmdline`
 - `parent_chain`
 - `target_path`
+- `target_file_identity`
 - `operation`
 - `decision`
 - `reason`
@@ -562,6 +599,10 @@ Example shape:
     }
   ],
   "target_path": "/home/alice/.aws/credentials",
+  "target_file_identity": {
+    "dev": 2049,
+    "ino": 123456
+  },
   "operation": "open_read",
   "decision": "allow",
   "reason": "learn mode: would deny access to protected group 'aws'",
@@ -593,14 +634,18 @@ The current code is organized around the planned backend split:
 - `src/bin/pepersprayd.rs`: daemon entrypoint
 - `packaging/INSTALL_LAYOUT.md`: intended installed filesystem layout
 - `packaging/build-deb.sh`: local `.deb` package builder
+- `packaging/build-rpm.sh`: local RPM package builder
+- `packaging/build-rpm-container.sh`: containerized RPM package builder
 - `packaging/qemu-test-deb.sh`: QEMU package lifecycle smoke test
+- `packaging/qemu-test-rpm.sh`: QEMU RPM lifecycle smoke test
 - `packaging/qemu-test-privileged.sh`: QEMU privileged fanotify/path-identity
   test runner
 - `packaging/deb/`: Debian metadata and maintainer scripts
+- `packaging/rpm/`: RPM spec and RPM-specific logrotate policy
 - `packaging/systemd/pepersprayd.service`: installed systemd unit
 - `docs/QEMU_PACKAGE_TESTING.md`: QEMU package validation guide
 - `docs/FAILURE_BEHAVIOR.md`: intended failure behavior for MVP hardening
-- `docs/PATH_SEMANTICS.md`: current path behavior and hardening gaps
+- `docs/PATH_SEMANTICS.md`: current path behavior and remaining caveats
 
 `src/main.rs` is intentionally kept as a thin dispatcher so the portable policy,
 logging, setup, status, and review behavior remains easier to test in isolation.
@@ -609,7 +654,7 @@ logging, setup, status, and review behavior remains easier to test in isolation.
 
 Suggested next milestones:
 
-1. Add package upgrade smoke coverage for permission repair from older installs.
+1. Validate RPM package lifecycle coverage in a booted Fedora/RHEL-family VM.
 2. Add release documentation.
 3. Add deeper tamper-resistance hardening for config, logs, and daemon
    self-protection.
@@ -617,8 +662,9 @@ Suggested next milestones:
 ## Current MVP Boundary
 
 The current MVP is useful for personal production / dogfooding on Ubuntu 24.04
-and has a Linux `fanotify` loop validated by privileged integration tests, but
-it still has documented tamper-resistance limitations.
+and Fedora/RHEL-family systems, and has a Linux `fanotify` loop validated by
+privileged integration tests, but it still has documented tamper-resistance
+limitations.
 
 It can answer:
 

@@ -2,7 +2,8 @@
 
 This document records intended failure behavior for the MVP. The current daemon
 has a Linux fanotify enforcement loop with privileged integration coverage on
-Ubuntu 24.04, but it still has personal-production hardening gaps documented in
+Ubuntu 24.04, plus RPM packaging support for Fedora/RHEL-family systems. It
+still has personal-production hardening gaps documented in
 `PATH_SEMANTICS.md`.
 
 ## Daemon Crash
@@ -34,7 +35,8 @@ Expected behavior:
 
 Decision logs and daemon lifecycle logs are part of the audit trail. If the
 daemon cannot append a log entry during startup, it returns an error. During
-event handling, log write failure is treated as a handling failure and the daemon
+event handling, log write failure is treated as a handling failure. In learn
+mode, the daemon allows the permission event by fallback; in enforce mode, it
 attempts to deny the permission event. Notification failures are not treated as
 policy failures; they are written as daemon lifecycle warnings when possible.
 
@@ -42,8 +44,11 @@ policy failures; they are written as daemon lifecycle warnings when possible.
 
 The policy engine expects UID, executable path, cwd, cmdline, and parent chain
 metadata when converting a real fanotify event into an `AccessEvent`. If process
-metadata cannot be read from `/proc`, event handling fails and the daemon
-attempts to deny the permission event.
+metadata cannot be read from `/proc`, event handling fails. Learn mode allows
+the permission event by fallback and records a daemon error so observation does
+not accidentally block short-lived tools. Enforce mode denies by fallback,
+preserving the zero-trust posture when the daemon cannot determine the process
+identity.
 
 ## Fanotify Setup Failure
 

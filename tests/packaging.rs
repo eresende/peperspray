@@ -19,7 +19,10 @@ fn maintainer_scripts_are_executable() {
         "packaging/deb/prerm",
         "packaging/deb/postrm",
         "packaging/build-deb.sh",
+        "packaging/build-rpm.sh",
+        "packaging/build-rpm-container.sh",
         "packaging/qemu-test-deb.sh",
+        "packaging/qemu-test-rpm.sh",
         "packaging/qemu-test-privileged.sh",
     ] {
         let mode = std::fs::metadata(path)
@@ -55,10 +58,103 @@ fn package_layout_files_exist() {
         "packaging/logrotate/peperspray",
         "packaging/systemd/pepersprayd.service",
         "packaging/INSTALL_LAYOUT.md",
+        "packaging/rpm/peperspray.spec",
+        "packaging/rpm/peperspray.logrotate",
         "docs/QEMU_PACKAGE_TESTING.md",
+        "packaging/build-rpm-container.sh",
+        "packaging/qemu-test-rpm.sh",
         "packaging/qemu-test-privileged.sh",
     ] {
         assert!(Path::new(path).exists(), "{path} should exist");
+    }
+}
+
+#[test]
+fn qemu_deb_test_exercises_upgrade_permission_repair() {
+    let script =
+        std::fs::read_to_string("packaging/qemu-test-deb.sh").expect("qemu deb test should exist");
+
+    assert!(
+        script.contains("checking upgrade permission repair"),
+        "QEMU deb smoke test should include upgrade permission repair coverage"
+    );
+    assert!(
+        script.contains("sudo DEBIAN_FRONTEND=noninteractive dpkg -i /tmp/peperspray.deb"),
+        "QEMU deb smoke test should reconfigure the installed package"
+    );
+    assert!(
+        script.contains("chmod 0644 /var/log/peperspray/events.jsonl"),
+        "QEMU deb smoke test should simulate the old world-readable audit log"
+    );
+}
+
+#[test]
+fn rpm_spec_declares_package_layout_and_scriptlets() {
+    let spec =
+        std::fs::read_to_string("packaging/rpm/peperspray.spec").expect("rpm spec should exist");
+
+    for expected in [
+        "Name:           peperspray",
+        "Requires:       systemd",
+        "Requires:       logrotate",
+        "BuildRequires:  systemd-rpm-macros",
+        "%systemd_post pepersprayd.service",
+        "%config(noreplace) %{_sysconfdir}/peperspray/config.toml",
+        "%config(noreplace) %{_sysconfdir}/logrotate.d/peperspray",
+        "%ghost %attr(0640,root,root) %{_localstatedir}/log/peperspray/events.jsonl",
+    ] {
+        assert!(
+            spec.contains(expected),
+            "rpm spec should contain {expected}"
+        );
+    }
+}
+
+#[test]
+fn rpm_logrotate_policy_uses_portable_root_group() {
+    let policy = std::fs::read_to_string("packaging/rpm/peperspray.logrotate")
+        .expect("rpm logrotate policy should exist");
+
+    assert!(policy.contains("/var/log/peperspray/events.jsonl"));
+    assert!(policy.contains("create 0640 root root"));
+    assert!(!policy.contains("root adm"));
+}
+
+#[test]
+fn rpm_container_builder_uses_fedora_and_delegates_to_rpm_builder() {
+    let script = std::fs::read_to_string("packaging/build-rpm-container.sh")
+        .expect("rpm container builder should exist");
+
+    for expected in [
+        "RPM_BUILD_IMAGE:-fedora:44",
+        "CONTAINER_ENGINE:-docker",
+        "dnf install -y rpm-build systemd-rpm-macros rust cargo gcc make findutils",
+        "packaging/build-rpm.sh",
+    ] {
+        assert!(
+            script.contains(expected),
+            "container RPM builder should contain {expected}"
+        );
+    }
+}
+
+#[test]
+fn qemu_rpm_test_exercises_lifecycle_and_reinstall_repair() {
+    let script =
+        std::fs::read_to_string("packaging/qemu-test-rpm.sh").expect("qemu rpm test should exist");
+
+    for expected in [
+        "sudo dnf install -y /tmp/peperspray.rpm",
+        "checking reinstall permission repair",
+        "sudo rpm -Uvh --replacepkgs /tmp/peperspray.rpm",
+        "peperspray-0.1.0-1.fc44.x86_64.rpm",
+        "sudo dnf remove -y peperspray",
+        "test \"$(sudo stat -c %U:%G /var/log/peperspray)\" = \"root:root\"",
+    ] {
+        assert!(
+            script.contains(expected),
+            "QEMU RPM smoke test should contain {expected}"
+        );
     }
 }
 
