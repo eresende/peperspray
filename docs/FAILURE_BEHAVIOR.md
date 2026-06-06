@@ -31,6 +31,21 @@ Expected behavior:
 - avoid replacing the active config
 - preserve the previous `.bak` file if no write was attempted
 
+## Unsafe Installed Path Permissions
+
+`peperspray doctor` reports unsafe ownership or modes for installed config, log,
+and binary paths. It treats these as errors:
+
+- config, config directory, log directory, audit log, and installed binaries not
+  owned by root
+- config, config directory, log directory, audit log, or installed binaries that
+  are group/world-writable
+- log directory or audit log that is world-accessible
+
+Missing optional protected preset paths remain warnings rather than errors. The
+daemon does not yet refuse startup based on these tamper checks; that is the
+next hardening step.
+
 ## Log Write Failure
 
 Decision logs and daemon lifecycle logs are part of the audit trail. If the

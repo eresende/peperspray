@@ -39,6 +39,10 @@ restricted to root-owned, non-world-readable permissions. Debian uses
 `root:adm` with mode `0640`; RPM uses `root:root` with mode `0640`. The daemon
 also creates the log with mode `0640` when it does not already exist.
 
+`peperspray doctor` reports errors when installed config, log, or binary paths
+are not root-owned, are group/world-writable, or when the log directory/audit log
+is world-accessible. Missing optional protected preset paths are warnings.
+
 The package installs a logrotate policy for `/var/log/peperspray/events.jsonl`.
 It rotates daily, rotates early at 10 MiB, keeps 14 rotations, compresses older
 logs, and uses `copytruncate` so the daemon does not need signal-based log

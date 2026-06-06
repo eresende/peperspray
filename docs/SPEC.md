@@ -10,7 +10,8 @@ Default posture is zero-trust: protected credential reads are denied in enforce 
 
 - `pepersprayd` runs as a root-owned `systemd` service on Linux systems with
   fanotify permission-event support.
-- `peperspray` CLI manages setup, status, mode changes, logs, test access, and policy review.
+- `peperspray` CLI manages setup, preset discovery, status, doctor checks, mode
+  changes, logs, test access, policy review, and reviewed policy application.
 - Core logic is platform-neutral: policy parsing, access decisions, process metadata, logs, and CLI models.
 - Linux backend translates `fanotify` events into generic access events: PID, UID, executable, cmdline, cwd, parent chain, target path, and operation.
 - Config lives at `/etc/peperspray/config.toml`; logs live under
@@ -20,8 +21,14 @@ Default posture is zero-trust: protected credential reads are denied in enforce 
 
 ## Policy Behavior
 
-- Protected presets include dotenv files, SSH, AWS, Docker, npm, Ansible Vault, GitHub/Git credentials, and Google Cloud credentials.
-- Setup asks which local users and credential groups to protect, then proposes explicit allow rules for expected tools such as `ssh`, `aws`, `docker`, `gh`, and `gcloud`.
+- The default protected preset profile is `dev-browser-wallet`, covering
+  developer credentials, cloud/package-manager files, browser credential stores,
+  wallets, and password managers.
+- Protected groups may contain concrete paths and glob-style `patterns` for
+  browser/profile locations.
+- Setup asks which local users and credential groups to protect, then proposes
+  explicit allow rules for detected expected tools such as `ssh`, `aws`,
+  `docker`, `gh`, `gcloud`, browsers, and known helper binaries.
 - Modes:
   - `learn`: log would-allow/would-deny decisions without blocking.
   - `enforce`: block protected reads unless an allow rule matches.
@@ -33,12 +40,17 @@ Default posture is zero-trust: protected credential reads are denied in enforce 
 ## CLI Surface
 
 - `peperspray setup`: interactive first-run configuration and allowlist bootstrap.
+- `peperspray presets`: list protected preset groups and platform paths.
 - `peperspray status`: daemon state, mode, protected users, active policy summary.
+- `peperspray doctor`: validate backend health, config/log/binary permissions,
+  config validity, and missing configured protected paths.
 - `peperspray learn`: switch to learn mode.
 - `peperspray enforce`: switch to enforce mode.
 - `peperspray logs`: inspect or follow structured logs.
 - `peperspray test-access <path>`: verify whether a read would be allowed or denied.
 - `peperspray policy-review`: review learned accesses and promote selected entries to allow rules.
+- `peperspray policy-apply`: merge a reviewed allow-rule suggestion file into a
+  config with validation and backup.
 - `peperspray policy-validate`: validate config syntax and rule consistency.
 - `pepersprayd --check`: validate daemon config and emit a lifecycle log without starting enforcement.
 
@@ -82,14 +94,18 @@ Path behavior and remaining identity caveats are tracked in
 - Package-test RPM install, `systemd` startup, config permissions, log
   permissions, logrotate policy, service metadata, reinstall permission repair,
   and clean uninstall behavior on Fedora/RHEL-family systems.
+- Release builds publish Linux x86_64 and ARM64 binaries plus Debian
+  `amd64`/`arm64` and RPM `x86_64`/`aarch64` packages.
 
 ## Assumptions
 
 - MVP targets Linux developer workstations with fanotify permission-event
   support. Ubuntu 24.04 currently has the deepest privileged test coverage;
   Fedora/RHEL-family systems have RPM packaging and a QEMU lifecycle runner.
+- ARM64 Linux package builds are supported; ARM64 QEMU package lifecycle tests
+  are deferred.
 - macOS and Windows are future ports; the initial implementation keeps backend boundaries clean but only ships the Linux backend.
-- The product prioritizes blocking credential reads over fleet management, SIEM integrations, or advanced tamper resistance in v1.
+- The product prioritizes blocking credential reads over fleet management, SIEM integrations, or full daemon self-protection in v1.
 
 ## Threat Model
 
@@ -129,3 +145,5 @@ The first enforcement milestone is intentionally narrow:
 - The initial CLI writes local TOML configuration and JSONL logs. It does not
   provide fleet policy distribution, remote attestation, central audit export,
   or multi-user approval workflows.
+- `doctor` reports unsafe installed path ownership and permissions, but the
+  daemon does not yet refuse startup on those checks.

@@ -88,8 +88,10 @@ Implemented policy and CLI capabilities:
   with minimum-event filtering
 - Starter and interactive config generation with detected local tools
 - Safe mode changes with config backups
-- Expanded protected presets for npm, Ansible Vault, Git credentials, and
-  project dotenv files
+- Protected preset discovery with the `dev-browser-wallet` default profile
+- Expanded protected presets for developer credentials, browser credential
+  stores, wallets, and password managers
+- Config v2 `protected_groups.patterns` for browser/profile path globs
 - Split CLI/library layout with `peperspray` and `pepersprayd` binaries
 - `pepersprayd` daemon with config validation, lifecycle JSONL logs, fanotify
   marks, and policy enforcement
@@ -107,16 +109,22 @@ Implemented policy and CLI capabilities:
 - Remove/purge behavior for the installed service, config, and runtime log
 - Installed logrotate policy for runtime log retention
 - Best-effort desktop notifications for denied reads with in-memory throttling
+- `doctor` health checks for backend availability, config validity, missing
+  optional protected paths, and unsafe installed path permissions
+- `policy-apply` for merging reviewed allow-rule suggestions with validation
+  and config backups
 - QEMU package lifecycle test for install, service startup, log permissions,
   upgrade permission repair, remove, and purge on Ubuntu 24.04
 - QEMU RPM package lifecycle runner for Fedora/RHEL-family systems
 - QEMU privileged integration runner for fanotify enforcement and path-identity
   regression tests on Ubuntu 24.04
 - Documented path semantics and inode/device alias hardening
+- Multi-architecture release builds for Linux x86_64 and ARM64 packages
 
 Not implemented yet:
 
-- advanced tamper resistance
+- daemon startup refusal for unsafe installed path permissions
+- periodic rescan for newly created protected paths
 
 ## Requirements
 
@@ -225,7 +233,7 @@ Policy fields:
 
 - `mode`: `learn` or `enforce`
 - `users`: protected user IDs and the credential groups that apply to them
-- `protected_groups`: named sets of protected paths
+- `protected_groups`: named sets of protected paths and optional glob patterns
 - `allow_rules`: explicit access rules
 
 Allow-rule fields:
@@ -292,8 +300,20 @@ cargo run -- setup --output ./generated-config.toml --interactive
 ```
 
 `setup` detects common tools in `PATH`, such as `aws`, `ssh`, `gh`, `gcloud`,
-`docker`, `npm`, `ansible-vault`, and `git`, and only generates allow rules for
-tools that are present.
+`docker`, `npm`, `ansible-vault`, `git`, browsers, and password-manager helpers,
+and only generates allow rules for tools that are present. Some tools also add
+known helper rules when the helper binary exists; for example Git adds
+`/usr/lib/git-core/git`.
+
+### List protected presets
+
+```sh
+cargo run -- presets
+cargo run -- presets --json
+```
+
+The default profile is `dev-browser-wallet`, covering developer credentials,
+browser credential stores, wallet data, and password-manager data.
 
 ### Change policy mode
 
@@ -464,6 +484,18 @@ cargo run -- policy-validate
 cargo run -- policy-validate --config examples/config.toml
 ```
 
+### Run health checks
+
+```sh
+cargo run -- doctor
+cargo run -- doctor --json
+```
+
+`doctor` checks backend availability, config parsing, installed config/log/binary
+ownership and modes, and missing configured protected paths. Missing optional
+preset paths are warnings; unsafe ownership or group/world-writable installed
+paths are errors.
+
 ### Test a simulated access
 
 Manual executable/UID input:
@@ -572,6 +604,23 @@ cargo run -- policy-review \
 
 `policy-review` never modifies the active config. It only suggests allow rules
 based on learn-mode `would_deny` events.
+
+Apply a reviewed suggestion file:
+
+```sh
+cargo run -- policy-apply \
+  --suggestions ./suggested-rules.toml \
+  --config ./generated-config.toml \
+  --dry-run
+
+cargo run -- policy-apply \
+  --suggestions ./suggested-rules.toml \
+  --config ./generated-config.toml \
+  --force
+```
+
+`policy-apply` validates the merged config before replacing it and writes a
+backup beside the active config.
 
 ## Log Format
 
@@ -692,9 +741,11 @@ version and prerelease flag.
 
 Suggested next milestones:
 
-1. Validate RPM package lifecycle coverage in a booted Fedora/RHEL-family VM.
-2. Add deeper tamper-resistance hardening for config, logs, and daemon
-   self-protection.
+1. Make `pepersprayd` refuse unsafe installed config, log, or binary
+   permissions at startup.
+2. Add periodic rescan coverage for newly created protected paths.
+3. Add ARM64 QEMU package lifecycle coverage after release package builds prove
+   stable.
 
 ## Current MVP Boundary
 
