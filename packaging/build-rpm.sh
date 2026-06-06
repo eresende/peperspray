@@ -4,6 +4,7 @@ set -eu
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 VERSION="${PEPERSPRAY_VERSION:-0.1.2}"
 RELEASE="${PEPERSPRAY_RELEASE:-1}"
+TARGET="${PEPERSPRAY_TARGET:-}"
 RPM_TOPDIR="$ROOT_DIR/target/rpm"
 SOURCES_DIR="$RPM_TOPDIR/SOURCES"
 SPECS_DIR="$RPM_TOPDIR/SPECS"
@@ -14,13 +15,19 @@ if ! command -v rpmbuild >/dev/null 2>&1; then
     exit 1
 fi
 
-cargo build --release --locked
+if [ -n "$TARGET" ]; then
+    cargo build --release --locked --target "$TARGET"
+    CARGO_TARGET_DIR="$ROOT_DIR/target/$TARGET/release"
+else
+    cargo build --release --locked
+    CARGO_TARGET_DIR="$ROOT_DIR/target/release"
+fi
 
 rm -rf "$RPM_TOPDIR"
 install -d "$SOURCES_DIR" "$SPECS_DIR"
 
-install -m 0755 "$ROOT_DIR/target/release/peperspray" "$SOURCES_DIR/peperspray"
-install -m 0755 "$ROOT_DIR/target/release/pepersprayd" "$SOURCES_DIR/pepersprayd"
+install -m 0755 "$CARGO_TARGET_DIR/peperspray" "$SOURCES_DIR/peperspray"
+install -m 0755 "$CARGO_TARGET_DIR/pepersprayd" "$SOURCES_DIR/pepersprayd"
 install -m 0644 "$ROOT_DIR/packaging/etc/peperspray/config.toml" "$SOURCES_DIR/config.toml"
 install -m 0644 "$ROOT_DIR/packaging/rpm/peperspray.logrotate" "$SOURCES_DIR/peperspray.logrotate"
 install -m 0644 "$ROOT_DIR/packaging/systemd/pepersprayd.service" "$SOURCES_DIR/pepersprayd.service"

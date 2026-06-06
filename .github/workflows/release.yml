@@ -21,8 +21,20 @@ permissions:
 
 jobs:
   build-deb:
-    name: Build Debian package
-    runs-on: ubuntu-24.04
+    name: Build Debian package (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86_64
+            runner: ubuntu-24.04
+            deb_arch: amd64
+            archive_suffix: linux-x86_64
+          - label: linux-aarch64
+            runner: ubuntu-24.04-arm
+            deb_arch: arm64
+            archive_suffix: linux-aarch64
 
     steps:
       - uses: actions/checkout@v4
@@ -63,31 +75,40 @@ jobs:
       - name: Build Debian package
         env:
           PEPERSPRAY_VERSION: ${{ steps.version.outputs.version }}
-          PEPERSPRAY_ARCH: amd64
+          PEPERSPRAY_ARCH: ${{ matrix.deb_arch }}
         run: packaging/build-deb.sh
 
       - name: Package release binaries
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p target/release-archive/peperspray-${{ steps.version.outputs.version }}-linux-x86_64
-          cp target/release/peperspray target/release/pepersprayd target/release-archive/peperspray-${{ steps.version.outputs.version }}-linux-x86_64/
-          cp README.md LICENSE-MIT LICENSE-APACHE target/release-archive/peperspray-${{ steps.version.outputs.version }}-linux-x86_64/
-          tar -C target/release-archive -czf target/peperspray-${{ steps.version.outputs.version }}-linux-x86_64.tar.gz peperspray-${{ steps.version.outputs.version }}-linux-x86_64
+          archive_dir="peperspray-${{ steps.version.outputs.version }}-${{ matrix.archive_suffix }}"
+          mkdir -p "target/release-archive/$archive_dir"
+          cp target/release/peperspray target/release/pepersprayd "target/release-archive/$archive_dir/"
+          cp README.md LICENSE-MIT LICENSE-APACHE "target/release-archive/$archive_dir/"
+          tar -C target/release-archive -czf "target/$archive_dir.tar.gz" "$archive_dir"
 
       - name: Upload Debian and binary artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: deb-and-binaries
+          name: deb-and-binaries-${{ matrix.label }}
           path: |
             target/debian/*.deb
-            target/peperspray-*-linux-x86_64.tar.gz
+            target/peperspray-*-*.tar.gz
           if-no-files-found: error
 
   build-rpm:
-    name: Build RPM package
-    runs-on: ubuntu-24.04
+    name: Build RPM package (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
     container: fedora:44
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86_64
+            runner: ubuntu-24.04
+          - label: linux-aarch64
+            runner: ubuntu-24.04-arm
 
     steps:
       - name: Install build tools
@@ -126,7 +147,7 @@ jobs:
       - name: Upload RPM artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rpm
+          name: rpm-${{ matrix.label }}
           path: target/rpm/RPMS/**/*.rpm
           if-no-files-found: error
 

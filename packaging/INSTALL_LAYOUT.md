@@ -57,11 +57,18 @@ Build a local package with:
 packaging/build-deb.sh
 ```
 
+The Debian builder emits a package for the host architecture by default. On
+Linux ARM64 hosts this produces `arm64`; set `PEPERSPRAY_ARCH` only when you
+need to override the package architecture.
+
 Build a local RPM package on Fedora/RHEL-family systems with:
 
 ```sh
 packaging/build-rpm.sh
 ```
+
+The RPM builder emits a package for the host architecture by default, including
+`aarch64` on Linux ARM64 hosts.
 
 Build the RPM from a non-RPM host through a Fedora container with:
 

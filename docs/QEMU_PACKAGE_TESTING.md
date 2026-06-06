@@ -57,6 +57,10 @@ permissions, runs remove, then runs purge.
 The runner uses KVM when `/dev/kvm` is available and falls back to TCG
 otherwise. Set `QEMU_ACCEL=kvm` or `QEMU_ACCEL=tcg` to force one mode.
 
+The QEMU lifecycle runners currently document and exercise x86_64 cloud images.
+ARM64 release packages are built separately by the release workflow; ARM64 QEMU
+lifecycle coverage is intentionally deferred.
+
 ## Debian / Ubuntu Checks
 
 The smoke test verifies:

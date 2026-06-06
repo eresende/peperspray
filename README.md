@@ -413,6 +413,10 @@ sudo apt remove peperspray
 sudo apt purge peperspray
 ```
 
+`packaging/build-deb.sh` builds for the host architecture by default. Set
+`PEPERSPRAY_ARCH=arm64` when building on a Linux ARM64 host; release builds
+publish both `amd64` and `arm64` Debian artifacts.
+
 Validate the package lifecycle in a QEMU Ubuntu 24.04 VM:
 
 ```sh
@@ -429,6 +433,9 @@ Build directly on a Fedora/RHEL-family host with `rpmbuild`:
 ```sh
 packaging/build-rpm.sh
 ```
+
+`packaging/build-rpm.sh` builds for the host architecture by default. Release
+builds publish both `x86_64` and `aarch64` RPM artifacts.
 
 Or build from an Ubuntu/Debian host through a Fedora container:
 
@@ -674,9 +681,9 @@ git push origin v0.1.2
 ```
 
 The release version must match `Cargo.toml` without the leading `v`. The
-workflow runs formatting, tests, clippy, builds the Linux x86_64 binaries,
-builds the Debian package, builds the Fedora/RHEL-family RPM package, and
-publishes those files as GitHub Release assets.
+workflow runs formatting, tests, clippy, builds Linux x86_64 and ARM64 binaries,
+builds Debian `amd64` and `arm64` packages, builds Fedora/RHEL-family `x86_64`
+and `aarch64` RPM packages, and publishes those files as GitHub Release assets.
 
 The workflow can also be run manually from GitHub Actions with an explicit
 version and prerelease flag.

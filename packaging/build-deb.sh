@@ -5,10 +5,17 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 PACKAGE_DIR="$ROOT_DIR/target/debian/package"
 CONTROL_DIR="$PACKAGE_DIR/DEBIAN"
 VERSION="${PEPERSPRAY_VERSION:-0.1.2}"
-ARCH="${PEPERSPRAY_ARCH:-amd64}"
+ARCH="${PEPERSPRAY_ARCH:-$(dpkg --print-architecture)}"
+TARGET="${PEPERSPRAY_TARGET:-}"
 DEB_PATH="$ROOT_DIR/target/debian/peperspray_${VERSION}_${ARCH}.deb"
 
-cargo build --release --locked
+if [ -n "$TARGET" ]; then
+    cargo build --release --locked --target "$TARGET"
+    CARGO_TARGET_DIR="$ROOT_DIR/target/$TARGET/release"
+else
+    cargo build --release --locked
+    CARGO_TARGET_DIR="$ROOT_DIR/target/release"
+fi
 
 rm -rf "$PACKAGE_DIR"
 install -d "$CONTROL_DIR"
@@ -18,8 +25,8 @@ install -d "$PACKAGE_DIR/etc/logrotate.d"
 install -d -m 0750 "$PACKAGE_DIR/var/log/peperspray"
 install -d "$PACKAGE_DIR/usr/lib/systemd/system"
 
-install -m 0755 "$ROOT_DIR/target/release/peperspray" "$PACKAGE_DIR/usr/bin/peperspray"
-install -m 0755 "$ROOT_DIR/target/release/pepersprayd" "$PACKAGE_DIR/usr/bin/pepersprayd"
+install -m 0755 "$CARGO_TARGET_DIR/peperspray" "$PACKAGE_DIR/usr/bin/peperspray"
+install -m 0755 "$CARGO_TARGET_DIR/pepersprayd" "$PACKAGE_DIR/usr/bin/pepersprayd"
 install -m 0644 "$ROOT_DIR/packaging/etc/peperspray/config.toml" "$PACKAGE_DIR/etc/peperspray/config.toml"
 install -m 0644 "$ROOT_DIR/packaging/logrotate/peperspray" "$PACKAGE_DIR/etc/logrotate.d/peperspray"
 install -m 0640 /dev/null "$PACKAGE_DIR/var/log/peperspray/events.jsonl"

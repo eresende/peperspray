@@ -70,6 +70,62 @@ fn package_layout_files_exist() {
 }
 
 #[test]
+fn debian_builder_supports_host_and_explicit_targets() {
+    let script =
+        std::fs::read_to_string("packaging/build-deb.sh").expect("debian builder should exist");
+
+    for expected in [
+        "ARCH=\"${PEPERSPRAY_ARCH:-$(dpkg --print-architecture)}\"",
+        "TARGET=\"${PEPERSPRAY_TARGET:-}\"",
+        "cargo build --release --locked --target \"$TARGET\"",
+        "target/$TARGET/release",
+        "peperspray_${VERSION}_${ARCH}.deb",
+    ] {
+        assert!(
+            script.contains(expected),
+            "Debian builder should contain {expected}"
+        );
+    }
+}
+
+#[test]
+fn rpm_builder_supports_explicit_targets() {
+    let script =
+        std::fs::read_to_string("packaging/build-rpm.sh").expect("rpm builder should exist");
+
+    for expected in [
+        "TARGET=\"${PEPERSPRAY_TARGET:-}\"",
+        "cargo build --release --locked --target \"$TARGET\"",
+        "target/$TARGET/release",
+    ] {
+        assert!(
+            script.contains(expected),
+            "RPM builder should contain {expected}"
+        );
+    }
+}
+
+#[test]
+fn release_workflow_builds_x86_64_and_arm64_packages() {
+    let workflow =
+        std::fs::read_to_string(".github/workflows/release.yml").expect("release workflow exists");
+
+    for expected in [
+        "ubuntu-24.04-arm",
+        "label: linux-aarch64",
+        "deb_arch: arm64",
+        "archive_suffix: linux-aarch64",
+        "name: rpm-${{ matrix.label }}",
+        "name: deb-and-binaries-${{ matrix.label }}",
+    ] {
+        assert!(
+            workflow.contains(expected),
+            "release workflow should contain {expected}"
+        );
+    }
+}
+
+#[test]
 fn qemu_deb_test_exercises_upgrade_permission_repair() {
     let script =
         std::fs::read_to_string("packaging/qemu-test-deb.sh").expect("qemu deb test should exist");
