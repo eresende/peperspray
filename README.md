@@ -3,15 +3,15 @@
 `peperspray` is a Linux-first credential access guard for developer
 workstations.
 
-The current MVP is a root-owned daemon that uses Linux `fanotify` permission
-events to detect protected credential-file reads and block them before they
-complete unless an explicit policy rule allows the access.
+The current Linux implementation is a root-owned daemon that uses Linux
+`fanotify` permission events to detect protected credential-file reads and block
+them before they complete unless an explicit policy rule allows the access.
 
-This repository is currently a **personal production / dogfood MVP** for Ubuntu
-24.04 and Fedora/RHEL-family developer workstations. It includes host-level read
-enforcement, packaging, service management, logs, policy review, and desktop
-notifications, while still carrying documented hardening gaps around tamper
-resistance:
+This repository is currently suitable for personal production / dogfooding on
+Ubuntu 24.04 and Fedora/RHEL-family developer workstations. It includes
+host-level read enforcement, packaging, service management, logs, health checks,
+policy review/apply tooling, and desktop notifications, while keeping remaining
+hardening gaps explicit:
 
 - TOML configuration parsing and logical validation
 - protected users and protected credential path groups
@@ -252,7 +252,7 @@ executable matching behavior. `policy-review --toml` includes `exe_sha256` when
 the logged executable is still readable.
 
 If `operation` is omitted, the rule currently applies to any known operation.
-Since the prototype only models `open_read`, generated rules include
+Since the current policy model only has `open_read`, generated rules include
 `operation = "open_read"` for clarity.
 
 If `parent_exe` is set, at least one parent process in the logged parent chain
@@ -712,7 +712,7 @@ The current code is organized around the planned backend split:
 - `packaging/rpm/`: RPM spec and RPM-specific logrotate policy
 - `packaging/systemd/pepersprayd.service`: installed systemd unit
 - `docs/QEMU_PACKAGE_TESTING.md`: QEMU package validation guide
-- `docs/FAILURE_BEHAVIOR.md`: intended failure behavior for MVP hardening
+- `docs/FAILURE_BEHAVIOR.md`: intended failure behavior and hardening notes
 - `docs/PATH_SEMANTICS.md`: current path behavior and remaining caveats
 
 `src/main.rs` is intentionally kept as a thin dispatcher so the portable policy,
@@ -744,15 +744,20 @@ Suggested next milestones:
 1. Make `pepersprayd` refuse unsafe installed config, log, or binary
    permissions at startup.
 2. Add periodic rescan coverage for newly created protected paths.
-3. Add ARM64 QEMU package lifecycle coverage after release package builds prove
+3. Improve policy-review ergonomics so learned accesses are easier to review,
+   group, filter, and apply safely. Target improvements include `--since`
+   filtering, clearer parent/helper process context, duplicate suppression,
+   risky-rule warnings for broad tools such as shells/editors/package hooks, and
+   better dry-run diffs before applying suggestions.
+4. Add ARM64 QEMU package lifecycle coverage after release package builds prove
    stable.
 
-## Current MVP Boundary
+## Current Boundary
 
-The current MVP is useful for personal production / dogfooding on Ubuntu 24.04
-and Fedora/RHEL-family systems, and has a Linux `fanotify` loop validated by
-privileged integration tests, but it still has documented tamper-resistance
-limitations.
+The current Linux release is useful for personal production / dogfooding on
+Ubuntu 24.04 and Fedora/RHEL-family systems, and has a Linux `fanotify` loop
+validated by privileged integration tests. It still has documented limits around
+daemon self-protection, root compromise, and newly created protected paths.
 
 It can answer:
 
@@ -766,9 +771,9 @@ The daemon path can enforce:
 Block this real process before it reads the file.
 ```
 
-That boundary is suitable for personal dogfooding, but it should not be treated
-as high-assurance protection against root compromise, daemon tampering, or
-periods where the daemon is not running.
+That boundary is suitable for personal dogfooding and developer workstation
+hardening, but it should not be treated as high-assurance protection against
+root compromise, daemon tampering, or periods where the daemon is not running.
 
 ## License
 
