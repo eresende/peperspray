@@ -46,6 +46,9 @@ pub struct ProtectedUser {
 pub struct ProtectedPathGroup {
     pub name: String,
     pub paths: Vec<PathBuf>,
+
+    #[serde(default)]
+    pub patterns: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -246,6 +249,12 @@ pub fn normalize_config_paths(config: &mut Config) {
             .iter()
             .flat_map(|path| normalize_protected_path(path, &group.name, &user_homes))
             .collect();
+
+        group.patterns = group
+            .patterns
+            .iter()
+            .flat_map(|pattern| normalize_protected_pattern(pattern, &group.name, &user_homes))
+            .collect();
     }
 
     for rule in &mut config.allow_rules {
@@ -254,6 +263,49 @@ pub fn normalize_config_paths(config: &mut Config) {
         if let Some(parent_exe) = &rule.parent_exe {
             rule.parent_exe = Some(paths::normalize_path(parent_exe));
         }
+    }
+}
+
+fn normalize_protected_pattern(
+    pattern: &str,
+    group_name: &str,
+    user_homes: &HashMap<String, Vec<PathBuf>>,
+) -> Vec<String> {
+    let path = Path::new(pattern);
+
+    if !paths::is_tilde_path(path) {
+        return vec![
+            paths::expand_and_normalize_path(path)
+                .to_string_lossy()
+                .to_string(),
+        ];
+    }
+
+    let Some(homes) = user_homes.get(group_name) else {
+        return vec![
+            paths::expand_and_normalize_path(path)
+                .to_string_lossy()
+                .to_string(),
+        ];
+    };
+
+    let expanded = homes
+        .iter()
+        .map(|home| {
+            paths::normalize_path(&paths::expand_tilde_with_home(path, home))
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+
+    if expanded.is_empty() {
+        vec![
+            paths::expand_and_normalize_path(path)
+                .to_string_lossy()
+                .to_string(),
+        ]
+    } else {
+        expanded
     }
 }
 
@@ -322,6 +374,7 @@ mod tests {
             protected_groups: vec![ProtectedPathGroup {
                 name: "aws".to_string(),
                 paths: vec![PathBuf::from("/home/alice/.aws")],
+                patterns: Vec::new(),
             }],
             allow_rules: vec![AllowRule {
                 name: "Allow AWS CLI".to_string(),
@@ -373,6 +426,7 @@ mod tests {
         config.protected_groups.push(ProtectedPathGroup {
             name: "aws".to_string(),
             paths: vec![PathBuf::from("/some/other/path")],
+            patterns: Vec::new(),
         });
 
         let errors = validate_config(&config);
@@ -477,6 +531,29 @@ operation = "open_read"
         let config: Config = toml::from_str(toml).expect("config should parse");
 
         assert_eq!(config.allow_rules[0].operation, Some(Operation::OpenRead));
+    }
+
+    #[test]
+    fn parses_v2_protected_group_patterns() {
+        let toml = r#"
+mode = "enforce"
+
+[[users]]
+uid = 1000
+groups = ["browser"]
+
+[[protected_groups]]
+name = "browser"
+paths = []
+patterns = ["/home/alice/.config/chromium/*/Cookies"]
+"#;
+
+        let config: Config = toml::from_str(toml).expect("config should parse");
+
+        assert_eq!(
+            config.protected_groups[0].patterns,
+            vec!["/home/alice/.config/chromium/*/Cookies"]
+        );
     }
 
     #[test]

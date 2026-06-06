@@ -3,6 +3,9 @@ use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 struct StatusOutput<'a> {
+    schema_version: u32,
+    platform: &'static str,
+    backend: &'static str,
     mode: String,
     protected_users: usize,
     protected_groups: usize,
@@ -58,6 +61,9 @@ pub fn print_status(config: &config::Config) {
 
 pub fn status_to_json(config: &config::Config) -> anyhow::Result<String> {
     let output = StatusOutput {
+        schema_version: 2,
+        platform: std::env::consts::OS,
+        backend: crate::backend_name(),
         mode: config.mode.to_string(),
         protected_users: config.users.len(),
         protected_groups: config.protected_groups.len(),
@@ -90,6 +96,7 @@ mod tests {
             protected_groups: vec![config::ProtectedPathGroup {
                 name: "aws".to_string(),
                 paths: vec![PathBuf::from("/home/alice/.aws")],
+                patterns: Vec::new(),
             }],
             allow_rules: vec![config::AllowRule {
                 name: "Allow AWS CLI".to_string(),

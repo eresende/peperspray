@@ -392,6 +392,7 @@ groups = ["missing"]
             protected_groups: vec![config::ProtectedPathGroup {
                 name: "test".to_string(),
                 paths: vec![dir.path().to_path_buf()],
+                patterns: Vec::new(),
             }],
             allow_rules: Vec::new(),
         };
@@ -426,6 +427,7 @@ groups = ["missing"]
                     dir.path().join("missing"),
                     PathBuf::from(".env"),
                 ],
+                patterns: Vec::new(),
             }],
             allow_rules: Vec::new(),
         };

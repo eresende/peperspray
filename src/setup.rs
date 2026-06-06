@@ -38,48 +38,155 @@ pub struct SetupTool {
     path_group: &'static str,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
 pub struct ProtectedPreset {
     name: &'static str,
     paths: &'static [&'static str],
+    patterns: &'static [&'static str],
+}
+
+#[derive(Debug, Serialize)]
+pub struct PresetsOutput {
+    schema_version: u32,
+    platform: &'static str,
+    default_profile: &'static str,
+    protected_groups: &'static [ProtectedPreset],
 }
 
 const PROTECTED_PRESETS: &[ProtectedPreset] = &[
     ProtectedPreset {
         name: "aws",
         paths: &["~/.aws"],
+        patterns: &[],
     },
     ProtectedPreset {
         name: "ssh",
         paths: &["~/.ssh"],
+        patterns: &[],
     },
     ProtectedPreset {
         name: "github",
         paths: &["~/.config/gh"],
+        patterns: &[],
     },
     ProtectedPreset {
         name: "gcloud",
         paths: &["~/.config/gcloud"],
+        patterns: &[],
+    },
+    ProtectedPreset {
+        name: "azure",
+        paths: &["~/.azure"],
+        patterns: &[],
+    },
+    ProtectedPreset {
+        name: "kubernetes",
+        paths: &["~/.kube"],
+        patterns: &[],
+    },
+    ProtectedPreset {
+        name: "vault",
+        paths: &["~/.vault-token"],
+        patterns: &[],
+    },
+    ProtectedPreset {
+        name: "iac",
+        paths: &["~/.terraform.d", "~/.pulumi"],
+        patterns: &[],
     },
     ProtectedPreset {
         name: "docker",
         paths: &["~/.docker"],
+        patterns: &[],
     },
     ProtectedPreset {
         name: "npm",
         paths: &["~/.npmrc"],
+        patterns: &[],
+    },
+    ProtectedPreset {
+        name: "python",
+        paths: &["~/.pypirc", "~/.config/pip/pip.conf"],
+        patterns: &[],
+    },
+    ProtectedPreset {
+        name: "java",
+        paths: &["~/.m2/settings.xml", "~/.gradle/gradle.properties"],
+        patterns: &[],
+    },
+    ProtectedPreset {
+        name: "rust",
+        paths: &["~/.cargo/credentials", "~/.cargo/credentials.toml"],
+        patterns: &[],
+    },
+    ProtectedPreset {
+        name: "huggingface",
+        paths: &["~/.cache/huggingface/token"],
+        patterns: &[],
     },
     ProtectedPreset {
         name: "ansible",
         paths: &["~/.ansible", "~/.ansible/vault_password"],
+        patterns: &[],
     },
     ProtectedPreset {
         name: "git",
-        paths: &["~/.git-credentials", "~/.netrc"],
+        paths: &["~/.git-credentials", "~/.netrc", "~/.gitconfig"],
+        patterns: &[],
+    },
+    ProtectedPreset {
+        name: "shell",
+        paths: &[
+            "~/.bash_history",
+            "~/.zsh_history",
+            "~/.config/fish/fish_history",
+        ],
+        patterns: &[],
     },
     ProtectedPreset {
         name: "dotenv",
         paths: &[".env", ".env.local", ".env.development", ".env.production"],
+        patterns: &[],
+    },
+    ProtectedPreset {
+        name: "browser",
+        paths: &[],
+        patterns: &[
+            "~/.config/google-chrome/*/Cookies",
+            "~/.config/google-chrome/*/Login Data",
+            "~/.config/google-chrome/Local State",
+            "~/.config/chromium/*/Cookies",
+            "~/.config/chromium/*/Login Data",
+            "~/.mozilla/firefox/*.default*/cookies.sqlite",
+            "~/.mozilla/firefox/*.default*/logins.json",
+            "~/.mozilla/firefox/*.default*/key4.db",
+        ],
+    },
+    ProtectedPreset {
+        name: "wallet",
+        paths: &[
+            "~/.electrum",
+            "~/.bitcoin",
+            "~/.bitmonero",
+            "~/.config/Exodus",
+            "~/.config/Electrum",
+            "~/.config/atomic",
+            "~/.config/Ledger Live",
+            "~/.config/Trezor Suite",
+            "~/.config/solana",
+        ],
+        patterns: &[],
+    },
+    ProtectedPreset {
+        name: "password-manager",
+        paths: &[
+            "~/.password-store",
+            "~/.gnupg",
+            "~/.config/Bitwarden",
+            "~/.config/keepassxc",
+            "~/.config/1Password",
+        ],
+        patterns: &[],
     },
 ];
 
@@ -105,6 +212,31 @@ const SETUP_TOOLS: &[SetupTool] = &[
         path_group: "gcloud",
     },
     SetupTool {
+        command: "az",
+        rule_name: "Allow Azure CLI",
+        path_group: "azure",
+    },
+    SetupTool {
+        command: "kubectl",
+        rule_name: "Allow kubectl",
+        path_group: "kubernetes",
+    },
+    SetupTool {
+        command: "vault",
+        rule_name: "Allow Vault CLI",
+        path_group: "vault",
+    },
+    SetupTool {
+        command: "terraform",
+        rule_name: "Allow Terraform",
+        path_group: "iac",
+    },
+    SetupTool {
+        command: "pulumi",
+        rule_name: "Allow Pulumi",
+        path_group: "iac",
+    },
+    SetupTool {
         command: "docker",
         rule_name: "Allow Docker CLI",
         path_group: "docker",
@@ -115,6 +247,26 @@ const SETUP_TOOLS: &[SetupTool] = &[
         path_group: "npm",
     },
     SetupTool {
+        command: "pip",
+        rule_name: "Allow pip",
+        path_group: "python",
+    },
+    SetupTool {
+        command: "cargo",
+        rule_name: "Allow Cargo",
+        path_group: "rust",
+    },
+    SetupTool {
+        command: "mvn",
+        rule_name: "Allow Maven",
+        path_group: "java",
+    },
+    SetupTool {
+        command: "gradle",
+        rule_name: "Allow Gradle",
+        path_group: "java",
+    },
+    SetupTool {
         command: "ansible-vault",
         rule_name: "Allow Ansible Vault",
         path_group: "ansible",
@@ -123,6 +275,26 @@ const SETUP_TOOLS: &[SetupTool] = &[
         command: "git",
         rule_name: "Allow Git",
         path_group: "git",
+    },
+    SetupTool {
+        command: "google-chrome",
+        rule_name: "Allow Google Chrome",
+        path_group: "browser",
+    },
+    SetupTool {
+        command: "chromium",
+        rule_name: "Allow Chromium",
+        path_group: "browser",
+    },
+    SetupTool {
+        command: "firefox",
+        rule_name: "Allow Firefox",
+        path_group: "browser",
+    },
+    SetupTool {
+        command: "gpg",
+        rule_name: "Allow GnuPG",
+        path_group: "password-manager",
     },
 ];
 
@@ -225,14 +397,55 @@ fn starter_protected_groups_toml(group_names: &[String]) -> String {
         .iter()
         .filter(|preset| group_names.iter().any(|name| name == preset.name))
         .map(|preset| {
-            format!(
+            let mut toml = format!(
                 "[[protected_groups]]\nname = \"{}\"\npaths = [{}]",
                 preset.name,
                 quoted_list(preset.paths.iter().copied())
-            )
+            );
+
+            if !preset.patterns.is_empty() {
+                toml.push_str(&format!(
+                    "\npatterns = [{}]",
+                    quoted_list(preset.patterns.iter().copied())
+                ));
+            }
+
+            toml
         })
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+pub fn presets_output() -> PresetsOutput {
+    PresetsOutput {
+        schema_version: 2,
+        platform: std::env::consts::OS,
+        default_profile: "dev-browser-wallet",
+        protected_groups: PROTECTED_PRESETS,
+    }
+}
+
+pub fn print_presets(json: bool) -> anyhow::Result<()> {
+    let output = presets_output();
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("Default profile: {}", output.default_profile);
+        println!("Platform: {}", output.platform);
+        println!();
+        for preset in output.protected_groups {
+            println!("{}", preset.name);
+            for path in preset.paths {
+                println!("  path: {path}");
+            }
+            for pattern in preset.patterns {
+                println!("  pattern: {pattern}");
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn starter_allow_rules_toml(uid: u32, tools: &[DetectedTool], group_names: &[String]) -> String {
@@ -499,13 +712,14 @@ mod tests {
         let toml = starter_config_toml_with_tools(1000, &tools);
 
         assert!(toml.contains("uid = 1000"));
-        assert!(toml.contains(
-            "groups = [\"aws\", \"ssh\", \"github\", \"gcloud\", \"docker\", \"npm\", \"ansible\", \"git\", \"dotenv\"]"
-        ));
+        assert!(toml.contains("\"browser\""));
+        assert!(toml.contains("\"wallet\""));
+        assert!(toml.contains("\"password-manager\""));
         assert!(toml.contains("paths = [\"~/.aws\"]"));
         assert!(toml.contains("paths = [\"~/.ssh\"]"));
         assert!(toml.contains("paths = [\"~/.npmrc\"]"));
         assert!(toml.contains("paths = [\".env\", \".env.local\""));
+        assert!(toml.contains("patterns = [\"~/.config/google-chrome/*/Cookies\""));
         assert!(toml.contains("name = \"Allow AWS CLI\""));
         assert!(toml.contains("name = \"Allow SSH client\""));
         assert!(toml.contains("operation = \"open_read\""));
@@ -527,7 +741,7 @@ mod tests {
 
         assert_eq!(config.mode, crate::config::Mode::Learn);
         assert_eq!(config.users.len(), 1);
-        assert_eq!(config.protected_groups.len(), 9);
+        assert_eq!(config.protected_groups.len(), PROTECTED_PRESETS.len());
         assert_eq!(config.allow_rules.len(), 1);
     }
 
@@ -606,9 +820,9 @@ mod tests {
             toml::from_str(&toml).expect("starter config should parse");
 
         assert_eq!(config.allow_rules.len(), 0);
-        assert!(toml.contains(
-            "groups = [\"aws\", \"ssh\", \"github\", \"gcloud\", \"docker\", \"npm\", \"ansible\", \"git\", \"dotenv\"]"
-        ));
+        assert!(toml.contains("\"browser\""));
+        assert!(toml.contains("\"wallet\""));
+        assert!(toml.contains("\"password-manager\""));
     }
 
     #[test]

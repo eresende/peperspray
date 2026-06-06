@@ -97,6 +97,12 @@ fn find_matching_protected_group(config: &Config, event: &AccessEvent) -> Option
                 return Some(group.name.clone());
             }
         }
+
+        for pattern in &group.patterns {
+            if path_matches_pattern(&event.target_path, pattern) {
+                return Some(group.name.clone());
+            }
+        }
     }
 
     None
@@ -150,6 +156,43 @@ fn path_matches_protected_path(
     }
 
     target_path.starts_with(protected_path)
+}
+
+fn path_matches_pattern(target_path: &std::path::Path, pattern: &str) -> bool {
+    let target = target_path.to_string_lossy();
+    wildcard_matches(pattern.as_bytes(), target.as_bytes())
+}
+
+fn wildcard_matches(pattern: &[u8], value: &[u8]) -> bool {
+    let mut pattern_index = 0;
+    let mut value_index = 0;
+    let mut last_star = None;
+    let mut retry_value_index = 0;
+
+    while value_index < value.len() {
+        if pattern_index < pattern.len()
+            && (pattern[pattern_index] == b'?' || pattern[pattern_index] == value[value_index])
+        {
+            pattern_index += 1;
+            value_index += 1;
+        } else if pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+            last_star = Some(pattern_index);
+            pattern_index += 1;
+            retry_value_index = value_index;
+        } else if let Some(star_index) = last_star {
+            pattern_index = star_index + 1;
+            retry_value_index += 1;
+            value_index = retry_value_index;
+        } else {
+            return false;
+        }
+    }
+
+    while pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+        pattern_index += 1;
+    }
+
+    pattern_index == pattern.len()
 }
 
 fn identity_matches_protected_path(
@@ -242,6 +285,7 @@ mod tests {
             protected_groups: vec![ProtectedPathGroup {
                 name: "aws".to_string(),
                 paths: vec![PathBuf::from("/home/alice/.aws")],
+                patterns: Vec::new(),
             }],
             allow_rules: vec![AllowRule {
                 name: "Allow AWS CLI".to_string(),
@@ -478,6 +522,7 @@ mod tests {
             protected_groups: vec![ProtectedPathGroup {
                 name: "dotenv".to_string(),
                 paths: vec![PathBuf::from(".env")],
+                patterns: Vec::new(),
             }],
             allow_rules: Vec::new(),
         };
@@ -494,6 +539,32 @@ mod tests {
         let decision = decide(&config, &event);
 
         assert!(matches!(decision, Decision::Allow { .. }));
+    }
+
+    #[test]
+    fn protects_matching_pattern() {
+        let config = Config {
+            mode: Mode::Enforce,
+            users: vec![ProtectedUser {
+                uid: 1000,
+                groups: vec!["browser".to_string()],
+            }],
+            protected_groups: vec![ProtectedPathGroup {
+                name: "browser".to_string(),
+                paths: Vec::new(),
+                patterns: vec!["/home/alice/.config/chromium/*/Cookies".to_string()],
+            }],
+            allow_rules: Vec::new(),
+        };
+
+        let event = access_event(
+            "/usr/bin/python3",
+            "/home/alice/.config/chromium/Default/Cookies",
+        );
+
+        let decision = decide(&config, &event);
+
+        assert!(matches!(decision, Decision::Deny { .. }));
     }
 
     #[test]
@@ -516,6 +587,7 @@ mod tests {
             protected_groups: vec![ProtectedPathGroup {
                 name: "test".to_string(),
                 paths: vec![protected_dir],
+                patterns: Vec::new(),
             }],
             allow_rules: Vec::new(),
         };
@@ -546,6 +618,7 @@ mod tests {
             protected_groups: vec![ProtectedPathGroup {
                 name: "test".to_string(),
                 paths: vec![protected_dir],
+                patterns: Vec::new(),
             }],
             allow_rules: Vec::new(),
         };
@@ -577,6 +650,7 @@ mod tests {
             protected_groups: vec![ProtectedPathGroup {
                 name: "test".to_string(),
                 paths: vec![protected_dir],
+                patterns: Vec::new(),
             }],
             allow_rules: Vec::new(),
         };

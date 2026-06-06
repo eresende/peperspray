@@ -4,7 +4,7 @@ use peperspray::cli::{Cli, Command, DecisionFilter, ServiceCommand, WhyTarget};
 use peperspray::event::{AccessEvent, Operation};
 use peperspray::policy::Decision;
 use peperspray::{
-    commands, config, logging, paths, policy, process, review, service, setup, status,
+    commands, config, doctor, logging, paths, policy, process, review, service, setup, status,
 };
 use std::path::PathBuf;
 
@@ -40,6 +40,49 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 std::process::exit(1);
+            }
+        }
+
+        Command::Presets { json } => {
+            setup::print_presets(json)?;
+        }
+
+        Command::Doctor {
+            config,
+            log_file,
+            json,
+        } => {
+            let ok = doctor::run(&config, &log_file, json)?;
+            if !ok {
+                std::process::exit(1);
+            }
+        }
+
+        Command::PolicyApply {
+            suggestions,
+            config,
+            dry_run,
+            force,
+        } => {
+            let added = review::apply_review_suggestions(&config, &suggestions, dry_run, force)
+                .with_context(|| {
+                    format!(
+                        "failed to apply suggestions from {} to {}",
+                        suggestions.display(),
+                        config.display()
+                    )
+                })?;
+
+            if dry_run {
+                println!("Dry run: would add {added} allow rules.");
+            } else {
+                println!("Applied {added} allow rules.");
+                if added > 0 {
+                    println!(
+                        "Backup written to {}.",
+                        config::backup_path_for_config(&config).display()
+                    );
+                }
             }
         }
 

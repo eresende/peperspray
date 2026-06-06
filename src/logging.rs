@@ -18,6 +18,9 @@ const LOG_FILE_MODE: u32 = 0o640;
 
 #[derive(Debug, Serialize)]
 pub struct DecisionLog<'a> {
+    pub schema_version: u32,
+    pub platform: &'static str,
+    pub backend: &'static str,
     pub event_id: Uuid,
     pub timestamp: DateTime<Utc>,
 
@@ -30,6 +33,15 @@ pub struct DecisionLog<'a> {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct OwnedDecisionLog {
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u32,
+
+    #[serde(default)]
+    pub platform: Option<String>,
+
+    #[serde(default)]
+    pub backend: Option<String>,
+
     pub event_id: Uuid,
     pub timestamp: DateTime<Utc>,
 
@@ -62,6 +74,9 @@ pub struct OwnedDecisionLog {
 
 #[derive(Debug, Serialize)]
 pub struct DaemonLog {
+    pub schema_version: u32,
+    pub platform: &'static str,
+    pub backend: &'static str,
     pub event_id: Uuid,
     pub timestamp: DateTime<Utc>,
     pub component: String,
@@ -84,6 +99,9 @@ pub struct DaemonLog {
 impl<'a> DecisionLog<'a> {
     pub fn new(event: &'a AccessEvent, decision: &'a Decision) -> Self {
         Self {
+            schema_version: 2,
+            platform: std::env::consts::OS,
+            backend: crate::backend_name(),
             event_id: Uuid::new_v4(),
             timestamp: Utc::now(),
             event,
@@ -95,6 +113,9 @@ impl<'a> DecisionLog<'a> {
 impl DaemonLog {
     pub fn new(level: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
+            schema_version: 2,
+            platform: std::env::consts::OS,
+            backend: crate::backend_name(),
             event_id: Uuid::new_v4(),
             timestamp: Utc::now(),
             component: "pepersprayd".to_string(),
@@ -120,6 +141,10 @@ impl DaemonLog {
         self.allow_rules = Some(allow_rules);
         self
     }
+}
+
+fn default_schema_version() -> u32 {
+    1
 }
 
 pub fn print_json_log(log: &DecisionLog) -> anyhow::Result<()> {
@@ -236,7 +261,21 @@ mod tests {
 
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].uid, 1000);
+        assert_eq!(logs[0].schema_version, 1);
         assert_eq!(logs[0].exe, PathBuf::from("/usr/bin/python3"));
+    }
+
+    #[test]
+    fn read_jsonl_logs_accepts_v2_decision_metadata() {
+        let line = r#"{"schema_version":2,"platform":"linux","backend":"fanotify","event_id":"00000000-0000-0000-0000-000000000001","timestamp":"2026-01-01T00:00:00Z","uid":1000,"exe":"/usr/bin/python3","target_path":"/home/alice/.aws/credentials","operation":"open_read","decision":"deny","reason":"test"}"#;
+
+        let log = parse_decision_jsonl_line(line)
+            .expect("line should parse")
+            .expect("decision log should be returned");
+
+        assert_eq!(log.schema_version, 2);
+        assert_eq!(log.platform.as_deref(), Some("linux"));
+        assert_eq!(log.backend.as_deref(), Some("fanotify"));
     }
 
     #[test]

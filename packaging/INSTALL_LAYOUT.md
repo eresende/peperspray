@@ -72,8 +72,8 @@ packaging/build-rpm-container.sh
 Install it with:
 
 ```sh
-cp ./target/debian/peperspray_0.1.1_amd64.deb /tmp/
-sudo apt install /tmp/peperspray_0.1.1_amd64.deb
+cp ./target/debian/peperspray_0.1.2_amd64.deb /tmp/
+sudo apt install /tmp/peperspray_0.1.2_amd64.deb
 ```
 
 Remove package-managed files while keeping conffiles where dpkg normally keeps

@@ -6,7 +6,7 @@ fn debian_control_declares_package_metadata() {
     let control = std::fs::read_to_string("packaging/deb/control").expect("control should exist");
 
     assert!(control.contains("Package: peperspray"));
-    assert!(control.contains("Version: 0.1.1"));
+    assert!(control.contains("Version: 0.1.2"));
     assert!(control.contains("Architecture: amd64"));
     assert!(control.contains("Depends: systemd, logrotate"));
     assert!(control.contains("Recommends: libnotify-bin"));

@@ -77,5 +77,5 @@ fi
 %ghost %attr(0640,root,root) %{_localstatedir}/log/peperspray/events.jsonl
 
 %changelog
-* Fri Jun 05 2026 peperspray maintainers <maintainers@example.invalid> - 0.1.1-1
+* Fri Jun 05 2026 peperspray maintainers <maintainers@example.invalid> - 0.1.2-1
 - Initial local RPM packaging.

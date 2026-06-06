@@ -1,6 +1,7 @@
 use crate::event::Operation;
 use crate::identity;
 use crate::logging;
+use crate::{config, paths};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
@@ -240,6 +241,103 @@ pub fn write_review_suggestions(
     Ok(())
 }
 
+pub fn apply_review_suggestions(
+    config_path: &Path,
+    suggestions_path: &Path,
+    dry_run: bool,
+    force: bool,
+) -> anyhow::Result<usize> {
+    if dry_run == force {
+        anyhow::bail!("choose exactly one of --dry-run or --force");
+    }
+
+    let mut document: toml::Value = toml::from_str(&std::fs::read_to_string(config_path)?)?;
+    let suggestions: toml::Value = toml::from_str(&std::fs::read_to_string(suggestions_path)?)?;
+    let suggested_rules = suggestions
+        .get("allow_rules")
+        .and_then(toml::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    if suggested_rules.is_empty() {
+        return Ok(0);
+    }
+
+    let existing_rules = document
+        .get("allow_rules")
+        .and_then(toml::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    let mut merged_rules = existing_rules.clone();
+    for rule in &suggested_rules {
+        if !merged_rules
+            .iter()
+            .any(|existing| same_allow_rule(existing, rule))
+        {
+            merged_rules.push(rule.clone());
+        }
+    }
+
+    let added = merged_rules.len().saturating_sub(existing_rules.len());
+    document["allow_rules"] = toml::Value::Array(merged_rules);
+
+    let parsed_config: config::Config = document.clone().try_into()?;
+    let errors = config::validate_config(&parsed_config);
+    if !errors.is_empty() {
+        anyhow::bail!("merged config is invalid: {}", errors.join("; "));
+    }
+
+    if force && added > 0 {
+        let backup_path = config::backup_path_for_config(config_path);
+        std::fs::copy(config_path, &backup_path)?;
+        let temp_path = config_path.with_file_name(format!(
+            "{}.tmp",
+            config_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("config.toml")
+        ));
+        std::fs::write(&temp_path, toml::to_string_pretty(&document)?)?;
+        std::fs::rename(&temp_path, config_path)?;
+    }
+
+    Ok(added)
+}
+
+fn same_allow_rule(left: &toml::Value, right: &toml::Value) -> bool {
+    let Some(left) = left.as_table() else {
+        return false;
+    };
+    let Some(right) = right.as_table() else {
+        return false;
+    };
+
+    let keys = [
+        "uid",
+        "exe",
+        "exe_sha256",
+        "path_group",
+        "parent_exe",
+        "operation",
+    ];
+
+    keys.iter()
+        .all(|key| normalized_rule_value(left.get(*key)) == normalized_rule_value(right.get(*key)))
+}
+
+fn normalized_rule_value(value: Option<&toml::Value>) -> Option<String> {
+    match value {
+        Some(toml::Value::String(path)) if path.starts_with('/') || path.starts_with('~') => Some(
+            paths::expand_and_normalize_path(Path::new(path))
+                .to_string_lossy()
+                .to_string(),
+        ),
+        Some(value) => Some(value.to_string()),
+        None => None,
+    }
+}
+
 pub fn allow_rule_count_text(count: usize) -> String {
     match count {
         1 => "1 suggested allow rule".to_string(),
@@ -261,6 +359,9 @@ mod tests {
 
     fn fake_log(index: usize) -> logging::OwnedDecisionLog {
         logging::OwnedDecisionLog {
+            schema_version: 2,
+            platform: Some("linux".to_string()),
+            backend: Some("fanotify".to_string()),
             event_id: Uuid::new_v4(),
             timestamp: Utc::now(),
             pid: None,

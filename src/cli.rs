@@ -56,6 +56,36 @@ pub enum Command {
         config: PathBuf,
     },
 
+    Presets {
+        #[arg(long)]
+        json: bool,
+    },
+
+    Doctor {
+        #[arg(long, default_value = DEFAULT_CONFIG_PATH)]
+        config: PathBuf,
+
+        #[arg(long, default_value = DEFAULT_LOG_FILE)]
+        log_file: PathBuf,
+
+        #[arg(long)]
+        json: bool,
+    },
+
+    PolicyApply {
+        #[arg(long)]
+        suggestions: PathBuf,
+
+        #[arg(long, default_value = DEFAULT_CONFIG_PATH)]
+        config: PathBuf,
+
+        #[arg(long, conflicts_with = "force")]
+        dry_run: bool,
+
+        #[arg(long, conflicts_with = "dry_run")]
+        force: bool,
+    },
+
     TestAccess {
         target_path: PathBuf,
 

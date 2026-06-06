@@ -225,6 +225,9 @@ mod tests {
 
     fn fake_log(index: usize) -> logging::OwnedDecisionLog {
         logging::OwnedDecisionLog {
+            schema_version: 2,
+            platform: Some("linux".to_string()),
+            backend: Some("fanotify".to_string()),
             event_id: Uuid::new_v4(),
             timestamp: Utc::now(),
             pid: None,
