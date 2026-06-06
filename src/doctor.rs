@@ -8,14 +8,24 @@ struct DoctorOutput {
     platform: &'static str,
     backend: &'static str,
     ok: bool,
+    errors: usize,
+    warnings: usize,
     checks: Vec<DoctorCheck>,
 }
 
 #[derive(Debug, Serialize)]
 struct DoctorCheck {
     name: String,
-    ok: bool,
+    severity: DoctorSeverity,
     message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum DoctorSeverity {
+    Ok,
+    Warning,
+    Error,
 }
 
 pub fn run(config_path: &Path, log_file: &Path, json: bool) -> anyhow::Result<bool> {
@@ -33,7 +43,11 @@ pub fn run(config_path: &Path, log_file: &Path, json: bool) -> anyhow::Result<bo
             let errors = config::validate_config(&parsed_config);
             checks.push(DoctorCheck {
                 name: "config_valid".to_string(),
-                ok: errors.is_empty(),
+                severity: if errors.is_empty() {
+                    DoctorSeverity::Ok
+                } else {
+                    DoctorSeverity::Error
+                },
                 message: if errors.is_empty() {
                     "config parses and validates".to_string()
                 } else {
@@ -46,7 +60,7 @@ pub fn run(config_path: &Path, log_file: &Path, json: bool) -> anyhow::Result<bo
                     if path.is_absolute() && !path.exists() {
                         checks.push(DoctorCheck {
                             name: "protected_path_missing".to_string(),
-                            ok: false,
+                            severity: DoctorSeverity::Warning,
                             message: format!(
                                 "{} path {} does not exist",
                                 group.name,
@@ -59,17 +73,21 @@ pub fn run(config_path: &Path, log_file: &Path, json: bool) -> anyhow::Result<bo
         }
         Err(err) => checks.push(DoctorCheck {
             name: "config_valid".to_string(),
-            ok: false,
+            severity: DoctorSeverity::Error,
             message: err.to_string(),
         }),
     }
 
-    let ok = checks.iter().all(|check| check.ok);
+    let errors = doctor_error_count(&checks);
+    let warnings = doctor_warning_count(&checks);
+    let ok = doctor_ok(&checks);
     let output = DoctorOutput {
         schema_version: 2,
         platform: std::env::consts::OS,
         backend: backend_name(),
         ok,
+        errors,
+        warnings,
         checks,
     };
 
@@ -79,7 +97,11 @@ pub fn run(config_path: &Path, log_file: &Path, json: bool) -> anyhow::Result<bo
         println!("Platform: {}", output.platform);
         println!("Backend: {}", output.backend);
         for check in &output.checks {
-            let status = if check.ok { "ok" } else { "fail" };
+            let status = match check.severity {
+                DoctorSeverity::Ok => "ok",
+                DoctorSeverity::Warning => "warn",
+                DoctorSeverity::Error => "fail",
+            };
             println!("{status}: {}: {}", check.name, check.message);
         }
     }
@@ -87,10 +109,32 @@ pub fn run(config_path: &Path, log_file: &Path, json: bool) -> anyhow::Result<bo
     Ok(ok)
 }
 
+fn doctor_error_count(checks: &[DoctorCheck]) -> usize {
+    checks
+        .iter()
+        .filter(|check| check.severity == DoctorSeverity::Error)
+        .count()
+}
+
+fn doctor_warning_count(checks: &[DoctorCheck]) -> usize {
+    checks
+        .iter()
+        .filter(|check| check.severity == DoctorSeverity::Warning)
+        .count()
+}
+
+fn doctor_ok(checks: &[DoctorCheck]) -> bool {
+    doctor_error_count(checks) == 0
+}
+
 fn path_exists_check(name: &str, path: &Path) -> DoctorCheck {
     DoctorCheck {
         name: name.to_string(),
-        ok: path.exists(),
+        severity: if path.exists() {
+            DoctorSeverity::Ok
+        } else {
+            DoctorSeverity::Error
+        },
         message: if path.exists() {
             format!("{} exists", path.display())
         } else {
@@ -110,7 +154,48 @@ fn backend_check() -> DoctorCheck {
 
     DoctorCheck {
         name: "backend_available".to_string(),
-        ok,
+        severity: if ok {
+            DoctorSeverity::Ok
+        } else {
+            DoctorSeverity::Error
+        },
         message,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn warning_checks_do_not_make_doctor_fail() {
+        let checks = vec![
+            DoctorCheck {
+                name: "config_valid".to_string(),
+                severity: DoctorSeverity::Ok,
+                message: "ok".to_string(),
+            },
+            DoctorCheck {
+                name: "protected_path_missing".to_string(),
+                severity: DoctorSeverity::Warning,
+                message: "optional path missing".to_string(),
+            },
+        ];
+
+        assert_eq!(doctor_error_count(&checks), 0);
+        assert_eq!(doctor_warning_count(&checks), 1);
+        assert!(doctor_ok(&checks));
+    }
+
+    #[test]
+    fn error_checks_make_doctor_fail() {
+        let checks = vec![DoctorCheck {
+            name: "config_valid".to_string(),
+            severity: DoctorSeverity::Error,
+            message: "invalid config".to_string(),
+        }];
+
+        assert_eq!(doctor_error_count(&checks), 1);
+        assert!(!doctor_ok(&checks));
     }
 }

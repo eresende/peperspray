@@ -449,7 +449,7 @@ pub fn print_presets(json: bool) -> anyhow::Result<()> {
 }
 
 fn starter_allow_rules_toml(uid: u32, tools: &[DetectedTool], group_names: &[String]) -> String {
-    tools
+    setup_allow_rule_entries(tools)
         .iter()
         .filter(|tool| group_names.iter().any(|name| name == &tool.path_group))
         .map(|tool| {
@@ -469,6 +469,34 @@ operation = "{}""#,
         })
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+fn setup_allow_rule_entries(tools: &[DetectedTool]) -> Vec<DetectedTool> {
+    let mut entries = Vec::new();
+
+    for tool in tools {
+        entries.push(tool.clone());
+
+        for helper in helper_allow_rules_for_tool(tool) {
+            if helper.exe.exists() {
+                entries.push(helper);
+            }
+        }
+    }
+
+    entries
+}
+
+fn helper_allow_rules_for_tool(tool: &DetectedTool) -> Vec<DetectedTool> {
+    match tool.command.as_str() {
+        "git" => vec![DetectedTool {
+            command: "git-core".to_string(),
+            rule_name: "Allow Git core helper".to_string(),
+            exe: PathBuf::from("/usr/lib/git-core/git"),
+            path_group: tool.path_group.clone(),
+        }],
+        _ => Vec::new(),
+    }
 }
 
 fn quoted_group_list(group_names: &[String]) -> String {
@@ -743,6 +771,28 @@ mod tests {
         assert_eq!(config.users.len(), 1);
         assert_eq!(config.protected_groups.len(), PROTECTED_PRESETS.len());
         assert_eq!(config.allow_rules.len(), 1);
+    }
+
+    #[test]
+    fn starter_config_adds_existing_git_core_helper_rule() {
+        if !Path::new("/usr/lib/git-core/git").exists() {
+            eprintln!("skipping: /usr/lib/git-core/git is not present");
+            return;
+        }
+
+        let tools = [DetectedTool {
+            command: "git".to_string(),
+            rule_name: "Allow Git".to_string(),
+            exe: PathBuf::from("/usr/bin/git"),
+            path_group: "git".to_string(),
+        }];
+
+        let toml = starter_config_toml_with_tools(1000, &tools);
+
+        assert!(toml.contains("name = \"Allow Git\""));
+        assert!(toml.contains("exe = \"/usr/bin/git\""));
+        assert!(toml.contains("name = \"Allow Git core helper\""));
+        assert!(toml.contains("exe = \"/usr/lib/git-core/git\""));
     }
 
     #[test]
