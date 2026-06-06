@@ -78,6 +78,7 @@ SEED_ISO="$WORK_DIR/seed.iso"
 SSH_KEY="$WORK_DIR/id_ed25519"
 USER_DATA="$WORK_DIR/user-data"
 META_DATA="$WORK_DIR/meta-data"
+QEMU_LOG="$WORK_DIR/qemu.log"
 
 rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR"
@@ -134,7 +135,8 @@ qemu-system-x86_64 \
     -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:$SSH_PORT-:22" \
     -device virtio-net-pci,netdev=net0 \
     -nographic \
-    ${QEMU_EXTRA_ARGS:-} &
+    ${QEMU_EXTRA_ARGS:-} \
+    </dev/null >"$QEMU_LOG" 2>&1 &
 
 QEMU_PID=$!
 cleanup() {
@@ -151,6 +153,7 @@ deadline=$(( $(date +%s) + 180 ))
 while ! $SSH_BASE true >/dev/null 2>&1; do
     if [ "$(date +%s)" -ge "$deadline" ]; then
         echo "timed out waiting for SSH" >&2
+        echo "QEMU output: $QEMU_LOG" >&2
         exit 1
     fi
     sleep 2
