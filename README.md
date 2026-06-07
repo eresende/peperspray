@@ -111,6 +111,7 @@ Implemented policy and CLI capabilities:
 - Best-effort desktop notifications for denied reads with in-memory throttling
 - `doctor` health checks for backend availability, config validity, missing
   optional protected paths, and unsafe installed path permissions
+- daemon startup refusal for unsafe installed config, log, or binary permissions
 - `policy-apply` for merging reviewed allow-rule suggestions with validation
   and config backups
 - QEMU package lifecycle test for install, service startup, log permissions,
@@ -123,7 +124,6 @@ Implemented policy and CLI capabilities:
 
 Not implemented yet:
 
-- daemon startup refusal for unsafe installed path permissions
 - periodic rescan for newly created protected paths
 
 ## Requirements
@@ -741,10 +741,8 @@ version and prerelease flag.
 
 Suggested next milestones:
 
-1. Make `pepersprayd` refuse unsafe installed config, log, or binary
-   permissions at startup.
-2. Add periodic rescan coverage for newly created protected paths.
-3. Improve policy-review ergonomics so learned accesses are easier to review,
+1. Add periodic rescan coverage for newly created protected paths.
+2. Improve policy-review ergonomics so learned accesses are easier to review,
    group, filter, and apply safely. Target improvements include `--since`
    filtering, clearer parent/helper process context, duplicate suppression,
    risky-rule warnings for broad tools such as shells/editors/package hooks, and

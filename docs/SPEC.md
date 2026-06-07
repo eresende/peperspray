@@ -145,5 +145,5 @@ The first enforcement milestone is intentionally narrow:
 - The initial CLI writes local TOML configuration and JSONL logs. It does not
   provide fleet policy distribution, remote attestation, central audit export,
   or multi-user approval workflows.
-- `doctor` reports unsafe installed path ownership and permissions, but the
-  daemon does not yet refuse startup on those checks.
+- `doctor` reports unsafe installed path ownership and permissions, and the
+  daemon refuses installed-mode startup on those checks.

@@ -1,4 +1,5 @@
 use crate::config;
+use crate::doctor;
 use crate::fanotify;
 use crate::fanotify::FanotifyPermissionEvent;
 use crate::logging::{self, DaemonLog};
@@ -48,6 +49,8 @@ pub fn load_and_validate_config(path: &Path) -> anyhow::Result<LoadedDaemonConfi
 }
 
 pub fn run(options: DaemonOptions) -> anyhow::Result<()> {
+    refuse_unsafe_installed_paths(&options)?;
+
     let loaded = load_and_validate_config(&options.config_path)?;
 
     append_lifecycle_log(
@@ -124,6 +127,33 @@ pub fn run(options: DaemonOptions) -> anyhow::Result<()> {
     loop {
         thread::sleep(Duration::from_secs(60));
     }
+}
+
+fn refuse_unsafe_installed_paths(options: &DaemonOptions) -> anyhow::Result<()> {
+    if !uses_installed_layout(options) {
+        return Ok(());
+    }
+
+    let tamper_errors =
+        doctor::installed_path_tamper_errors(&options.config_path, &options.log_file);
+
+    if tamper_errors.is_empty() {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "daemon startup refused because installed path permissions are unsafe:\n{}",
+        tamper_errors
+            .iter()
+            .map(|error| format!("- {error}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+fn uses_installed_layout(options: &DaemonOptions) -> bool {
+    options.config_path == Path::new(DEFAULT_DAEMON_CONFIG_PATH)
+        || options.log_file == Path::new(DEFAULT_DAEMON_LOG_FILE)
 }
 
 fn run_fanotify_loop(
@@ -374,6 +404,58 @@ groups = ["missing"]
         let result = load_and_validate_config(&path);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn unsafe_installed_paths_refuse_startup() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let config_path = dir.path().join("config.toml");
+        std::fs::write(&config_path, sample_config()).expect("config should be written");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = std::fs::metadata(&config_path)
+                .expect("metadata should be readable")
+                .permissions();
+            permissions.set_mode(0o666);
+            std::fs::set_permissions(&config_path, permissions)
+                .expect("permissions should be updated");
+        }
+
+        let options = DaemonOptions {
+            config_path,
+            log_file: PathBuf::from(DEFAULT_DAEMON_LOG_FILE),
+            check_only: true,
+            fanotify_probe: None,
+            fanotify_path: None,
+        };
+
+        let result = refuse_unsafe_installed_paths(&options);
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("installed path permissions are unsafe")
+        );
+    }
+
+    #[test]
+    fn custom_development_paths_skip_installed_path_refusal() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let options = DaemonOptions {
+            config_path: dir.path().join("config.toml"),
+            log_file: dir.path().join("events.jsonl"),
+            check_only: true,
+            fanotify_probe: None,
+            fanotify_path: None,
+        };
+
+        let result = refuse_unsafe_installed_paths(&options);
+
+        assert!(result.is_ok());
     }
 
     #[test]

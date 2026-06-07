@@ -43,8 +43,7 @@ and binary paths. It treats these as errors:
 - log directory or audit log that is world-accessible
 
 Missing optional protected preset paths remain warnings rather than errors. The
-daemon does not yet refuse startup based on these tamper checks; that is the
-next hardening step.
+daemon refuses installed-mode startup when these tamper checks fail.
 
 ## Log Write Failure
 

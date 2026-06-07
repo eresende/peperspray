@@ -114,6 +114,14 @@ pub fn run(config_path: &Path, log_file: &Path, json: bool) -> anyhow::Result<bo
     Ok(ok)
 }
 
+pub fn installed_path_tamper_errors(config_path: &Path, log_file: &Path) -> Vec<String> {
+    tamper_checks(config_path, log_file)
+        .into_iter()
+        .filter(|check| check.severity == DoctorSeverity::Error)
+        .map(|check| format!("{}: {}", check.name, check.message))
+        .collect()
+}
+
 fn tamper_checks(config_path: &Path, log_file: &Path) -> Vec<DoctorCheck> {
     let mut checks = Vec::new();
 
@@ -454,5 +462,29 @@ mod tests {
 
         assert_eq!(check.severity, DoctorSeverity::Error);
         assert!(check.message.contains("world-accessible"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn installed_path_tamper_errors_reports_unsafe_paths() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let config = dir.path().join("config.toml");
+        let log_file = dir.path().join("events.jsonl");
+        std::fs::write(&config, "mode = \"learn\"").expect("config should be written");
+        std::fs::write(&log_file, "").expect("log should be written");
+
+        let mut permissions = std::fs::metadata(&config)
+            .expect("metadata should be readable")
+            .permissions();
+        permissions.set_mode(0o666);
+        std::fs::set_permissions(&config, permissions).expect("permissions should be updated");
+
+        let errors = installed_path_tamper_errors(&config, &log_file);
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("config_not_writable_by_others"))
+        );
     }
 }
