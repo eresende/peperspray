@@ -120,11 +120,8 @@ Implemented policy and CLI capabilities:
 - QEMU privileged integration runner for fanotify enforcement and path-identity
   regression tests on Ubuntu 24.04
 - Documented path semantics and inode/device alias hardening
+- Periodic daemon rescan for protected paths created after startup
 - Multi-architecture release builds for Linux x86_64 and ARM64 packages
-
-Not implemented yet:
-
-- periodic rescan for newly created protected paths
 
 ## Requirements
 
@@ -338,9 +335,10 @@ cargo run --bin pepersprayd -- \
 
 Installed-mode defaults are `/etc/peperspray/config.toml` and
 `/var/log/peperspray/events.jsonl`. The systemd service starts the daemon as
-root and marks existing absolute protected paths from the config. Protected
-paths such as `~/.aws` are expanded against the configured protected user's home
-directory, not root's home directory.
+root, marks absolute protected paths from the config, and periodically rescans
+for protected paths created after startup. Protected paths such as `~/.aws` are
+expanded against the configured protected user's home directory, not root's home
+directory.
 
 The experimental fanotify probe initializes a permission-event mark without
 starting the full loop:
@@ -741,13 +739,12 @@ version and prerelease flag.
 
 Suggested next milestones:
 
-1. Add periodic rescan coverage for newly created protected paths.
-2. Improve policy-review ergonomics so learned accesses are easier to review,
+1. Improve policy-review ergonomics so learned accesses are easier to review,
    group, filter, and apply safely. Target improvements include `--since`
    filtering, clearer parent/helper process context, duplicate suppression,
    risky-rule warnings for broad tools such as shells/editors/package hooks, and
    better dry-run diffs before applying suggestions.
-4. Add ARM64 QEMU package lifecycle coverage after release package builds prove
+2. Add ARM64 QEMU package lifecycle coverage after release package builds prove
    stable.
 
 ## Current Boundary
@@ -755,7 +752,8 @@ Suggested next milestones:
 The current Linux release is useful for personal production / dogfooding on
 Ubuntu 24.04 and Fedora/RHEL-family systems, and has a Linux `fanotify` loop
 validated by privileged integration tests. It still has documented limits around
-daemon self-protection, root compromise, and newly created protected paths.
+daemon self-protection, root compromise, and rename-heavy protected path
+workflows.
 
 It can answer:
 

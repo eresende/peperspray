@@ -9,10 +9,11 @@ use anyhow::Context;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const DEFAULT_DAEMON_CONFIG_PATH: &str = "/etc/peperspray/config.toml";
 pub const DEFAULT_DAEMON_LOG_FILE: &str = "/var/log/peperspray/events.jsonl";
+const FANOTIFY_RESCAN_INTERVAL: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone)]
 pub struct DaemonOptions {
@@ -116,7 +117,7 @@ pub fn run(options: DaemonOptions) -> anyhow::Result<()> {
         &options.log_file,
         DaemonLog::new(
             "warn",
-            "no existing absolute protected paths available for fanotify marks",
+            "no absolute protected paths available for fanotify marks",
         ),
     )?;
 
@@ -163,13 +164,9 @@ fn run_fanotify_loop(
 ) -> anyhow::Result<()> {
     let fanotify = fanotify::FanotifyProbe::new()
         .context("failed to initialize fanotify permission listener")?;
-    let mark_paths = fanotify_mark_paths(paths);
-
-    for path in &mark_paths {
-        fanotify
-            .mark_path(path)
-            .with_context(|| format!("failed to mark {} for fanotify", path.display()))?;
-    }
+    let mut marked_paths = BTreeSet::new();
+    mark_new_fanotify_paths(&fanotify, paths, &mut marked_paths)
+        .context("failed to mark initial protected paths for fanotify")?;
 
     append_lifecycle_log(
         log_file,
@@ -178,22 +175,41 @@ fn run_fanotify_loop(
             format!(
                 "fanotify loop started fd {} for {} protected paths",
                 fanotify.raw_fd(),
-                mark_paths.len()
+                marked_paths.len()
             ),
         ),
     )?;
 
     println!(
         "fanotify loop started for {} protected paths",
-        mark_paths.len()
+        marked_paths.len()
     );
 
     let mut deny_notifier = DenyNotifier::default();
+    let mut next_rescan = Instant::now() + FANOTIFY_RESCAN_INTERVAL;
 
     loop {
         let events = fanotify.read_permission_events()?;
 
         if events.is_empty() {
+            if Instant::now() >= next_rescan {
+                if let Err(error) =
+                    rescan_fanotify_marks(&fanotify, paths, &mut marked_paths, log_file)
+                {
+                    let _ = append_lifecycle_log(
+                        log_file,
+                        DaemonLog::new(
+                            "warn",
+                            format!(
+                                "failed to rescan protected paths for fanotify marks: {error:#}"
+                            ),
+                        ),
+                    );
+                }
+
+                next_rescan = Instant::now() + FANOTIFY_RESCAN_INTERVAL;
+            }
+
             thread::sleep(Duration::from_millis(50));
             continue;
         }
@@ -233,12 +249,59 @@ fn run_fanotify_loop(
     }
 }
 
+fn rescan_fanotify_marks(
+    fanotify: &fanotify::FanotifyProbe,
+    paths: &[PathBuf],
+    marked_paths: &mut BTreeSet<PathBuf>,
+    log_file: &Path,
+) -> anyhow::Result<()> {
+    let added = mark_new_fanotify_paths(fanotify, paths, marked_paths)?;
+
+    if added > 0 {
+        append_lifecycle_log(
+            log_file,
+            DaemonLog::new(
+                "info",
+                format!("fanotify rescan added {added} protected path marks"),
+            ),
+        )?;
+    }
+
+    Ok(())
+}
+
+fn mark_new_fanotify_paths(
+    fanotify: &fanotify::FanotifyProbe,
+    paths: &[PathBuf],
+    marked_paths: &mut BTreeSet<PathBuf>,
+) -> anyhow::Result<usize> {
+    let new_paths = new_fanotify_mark_paths(paths, marked_paths);
+    let mut added = 0;
+
+    for path in new_paths {
+        fanotify
+            .mark_path(&path)
+            .with_context(|| format!("failed to mark {} for fanotify", path.display()))?;
+        marked_paths.insert(path);
+        added += 1;
+    }
+
+    Ok(added)
+}
+
+fn new_fanotify_mark_paths(paths: &[PathBuf], marked_paths: &BTreeSet<PathBuf>) -> Vec<PathBuf> {
+    fanotify_mark_paths(paths)
+        .into_iter()
+        .filter(|path| !marked_paths.contains(path))
+        .collect()
+}
+
 fn configured_fanotify_paths(config: &config::Config) -> Vec<PathBuf> {
     config
         .protected_groups
         .iter()
         .flat_map(|group| group.paths.iter())
-        .filter(|path| path.is_absolute() && path.exists())
+        .filter(|path| path.is_absolute())
         .cloned()
         .collect::<BTreeSet<_>>()
         .into_iter()
@@ -493,9 +556,10 @@ groups = ["missing"]
     }
 
     #[test]
-    fn configured_fanotify_paths_returns_existing_absolute_paths() {
+    fn configured_fanotify_paths_returns_absolute_paths() {
         let dir = tempfile::tempdir().expect("temp dir should be created");
         let protected = dir.path().join(".aws");
+        let missing = dir.path().join("missing");
         std::fs::create_dir(&protected).expect("protected dir should be created");
 
         let config = config::Config {
@@ -506,7 +570,7 @@ groups = ["missing"]
                 paths: vec![
                     protected.clone(),
                     protected.clone(),
-                    dir.path().join("missing"),
+                    missing.clone(),
                     PathBuf::from(".env"),
                 ],
                 patterns: Vec::new(),
@@ -516,7 +580,7 @@ groups = ["missing"]
 
         let paths = configured_fanotify_paths(&config);
 
-        assert_eq!(paths, vec![protected]);
+        assert_eq!(paths, vec![protected, missing]);
     }
 
     #[test]
@@ -535,5 +599,41 @@ groups = ["missing"]
         assert!(paths.contains(&protected));
         assert!(paths.contains(&nested));
         assert!(paths.contains(&secret));
+    }
+
+    #[test]
+    fn new_fanotify_mark_paths_returns_only_unmarked_existing_paths() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let protected = dir.path().join("protected");
+        let nested = protected.join("nested");
+        let missing = dir.path().join("missing");
+
+        std::fs::create_dir(&protected).expect("protected dir should be created");
+        std::fs::create_dir(&nested).expect("nested dir should be created");
+
+        let mut marked_paths = BTreeSet::new();
+        marked_paths.insert(protected.clone());
+
+        let paths = new_fanotify_mark_paths(&[protected.clone(), missing], &marked_paths);
+
+        assert_eq!(paths, vec![nested]);
+    }
+
+    #[test]
+    fn new_fanotify_mark_paths_discovers_root_created_after_startup() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let protected = dir.path().join("protected");
+        let marked_paths = BTreeSet::new();
+
+        assert!(
+            new_fanotify_mark_paths(std::slice::from_ref(&protected), &marked_paths).is_empty()
+        );
+
+        std::fs::create_dir(&protected).expect("protected dir should be created");
+
+        assert_eq!(
+            new_fanotify_mark_paths(std::slice::from_ref(&protected), &marked_paths),
+            vec![protected]
+        );
     }
 }

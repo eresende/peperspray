@@ -73,6 +73,21 @@ fn start_daemon(config: &Path, log_file: &Path, fanotify_path: &Path) -> ChildGu
     ChildGuard::new(child)
 }
 
+fn start_daemon_from_config(config: &Path, log_file: &Path) -> ChildGuard {
+    let child = Command::new(daemon_bin())
+        .arg("--config")
+        .arg(config)
+        .arg("--log-file")
+        .arg(log_file)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("daemon should start");
+
+    ChildGuard::new(child)
+}
+
 fn wait_for_log_contains(log_file: &Path, needle: &str) {
     let deadline = Instant::now() + Duration::from_secs(5);
 
@@ -162,6 +177,38 @@ fn fanotify_loop_denies_reads_in_enforce_mode() {
     let _daemon = start_daemon(&config, &log_file, &protected_dir);
 
     wait_for_log_contains(&log_file, "fanotify loop started");
+
+    let status = run_cat_with_timeout(&target);
+
+    assert!(!status.success());
+    wait_for_log_contains(&log_file, "\"decision\":\"deny\"");
+}
+
+#[test]
+#[ignore = "requires root and Linux fanotify permission events"]
+fn fanotify_rescan_marks_protected_path_created_after_startup() {
+    if skip_unless_root() {
+        return;
+    }
+
+    let dir = tempfile::tempdir().expect("temp dir should be created");
+    let protected_dir = dir.path().join("protected");
+    let target = protected_dir.join("secret.txt");
+    let config = dir.path().join("config.toml");
+    let log_file = dir.path().join("events.jsonl");
+
+    std::fs::write(
+        &config,
+        config_for("enforce", current_uid(), &protected_dir),
+    )
+    .expect("config should be written");
+
+    let _daemon = start_daemon_from_config(&config, &log_file);
+    wait_for_log_contains(&log_file, "fanotify loop started");
+
+    std::fs::create_dir(&protected_dir).expect("protected dir should be created");
+    std::fs::write(&target, "secret").expect("target should be written");
+    wait_for_log_contains(&log_file, "fanotify rescan added");
 
     let status = run_cat_with_timeout(&target);
 

@@ -135,9 +135,9 @@ The first enforcement milestone is intentionally narrow:
   Linux fanotify events, target device/inode identity used to detect protected
   file aliases.
 - Path-identity hardening marks existing protected descendants at daemon loop
-  startup. The supported shape is small credential trees and individual secret
-  files. Newly created nested directories and rename-heavy workflows need
-  additional lifecycle coverage before relying on the tool for high-assurance
+  startup and during periodic rescans. The supported shape is small credential
+  trees and individual secret files. Rename-heavy workflows need additional
+  lifecycle coverage before relying on the tool for high-assurance
   environments.
 - Learn mode is observational. It records accesses that would be denied but does
   not prevent credential reads.

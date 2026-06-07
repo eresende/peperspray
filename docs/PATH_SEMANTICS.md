@@ -52,9 +52,10 @@ the parent directory path still matches the protected prefix.
 Config paths are normalized at load time. If a protected directory is renamed
 after config load, path-prefix matching follows the loaded path, not the new
 directory name. For existing protected files with fanotify marks, device/inode
-identity matching can still identify the underlying file object. Newly created
-or moved descendants after daemon startup need more coverage before relying on
-rename behavior for high-assurance enforcement.
+identity matching can still identify the underlying file object. The daemon
+periodically rescans configured protected roots and marks newly created paths,
+but rename-heavy workflows still need more coverage before relying on rename
+behavior for high-assurance enforcement.
 
 ## Hard Links
 
@@ -62,11 +63,12 @@ Hard-link aliases for existing protected files are blocked by device/inode
 identity matching. The privileged regression test
 `hard_link_alias_outside_marked_dir_is_blocked` covers this behavior end to end.
 
-The current implementation relies on marks placed at daemon loop startup for
-existing protected descendants. New hard-link patterns created after startup
-should be covered by path-prefix behavior when the access path remains under a
-protected directory, but alias visibility outside the protected tree should be
-retested when broadening the creation/rename threat model.
+The current implementation relies on marks placed at daemon loop startup and by
+periodic rescans for existing protected descendants. New hard-link patterns
+created after startup should be covered by path-prefix behavior when the access
+path remains under a protected directory, but alias visibility outside the
+protected tree should be retested when broadening the creation/rename threat
+model.
 
 ## Bind Mounts And Namespaces
 
