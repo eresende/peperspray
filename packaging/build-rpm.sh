@@ -2,7 +2,7 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-VERSION="${PEPERSPRAY_VERSION:-0.1.2}"
+VERSION="${PEPERSPRAY_VERSION:-0.1.3}"
 RELEASE="${PEPERSPRAY_RELEASE:-1}"
 TARGET="${PEPERSPRAY_TARGET:-}"
 RPM_TOPDIR="$ROOT_DIR/target/rpm"

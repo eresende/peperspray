@@ -4,7 +4,7 @@ set -eu
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 PACKAGE_DIR="$ROOT_DIR/target/debian/package"
 CONTROL_DIR="$PACKAGE_DIR/DEBIAN"
-VERSION="${PEPERSPRAY_VERSION:-0.1.2}"
+VERSION="${PEPERSPRAY_VERSION:-0.1.3}"
 ARCH="${PEPERSPRAY_ARCH:-$(dpkg --print-architecture)}"
 TARGET="${PEPERSPRAY_TARGET:-}"
 DEB_PATH="$ROOT_DIR/target/debian/peperspray_${VERSION}_${ARCH}.deb"

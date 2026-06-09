@@ -461,8 +461,8 @@ early at 10 MiB, keeps 14 rotations, and compresses older logs.
 
 ```sh
 packaging/build-deb.sh
-cp ./target/debian/peperspray_0.1.2_amd64.deb /tmp/
-sudo apt install /tmp/peperspray_0.1.2_amd64.deb
+cp ./target/debian/peperspray_0.1.3_amd64.deb /tmp/
+sudo apt install /tmp/peperspray_0.1.3_amd64.deb
 sudo apt remove peperspray
 sudo apt purge peperspray
 ```
@@ -759,8 +759,8 @@ Official releases are published by the GitHub Actions release workflow.
 To publish from a tag:
 
 ```sh
-git tag v0.1.2
-git push origin v0.1.2
+git tag v0.1.3
+git push origin v0.1.3
 ```
 
 The release version must match `Cargo.toml` without the leading `v`. The

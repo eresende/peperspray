@@ -77,5 +77,8 @@ fi
 %ghost %attr(0640,root,root) %{_localstatedir}/log/peperspray/events.jsonl
 
 %changelog
+* Tue Jun 09 2026 peperspray maintainers <maintainers@example.invalid> - 0.1.3-1
+- Add optional local assistant integration.
+
 * Fri Jun 05 2026 peperspray maintainers <maintainers@example.invalid> - 0.1.2-1
 - Initial local RPM packaging.
