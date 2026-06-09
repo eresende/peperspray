@@ -19,6 +19,28 @@ pub struct ReviewCandidate {
     event_count: usize,
 }
 
+impl ReviewCandidate {
+    pub fn uid(&self) -> u32 {
+        self.key.uid
+    }
+
+    pub fn exe(&self) -> &Path {
+        &self.key.exe
+    }
+
+    pub fn path_group(&self) -> &str {
+        &self.key.path_group
+    }
+
+    pub fn parent_exe(&self) -> Option<&Path> {
+        self.key.parent_exe.as_deref()
+    }
+
+    pub fn event_count(&self) -> usize {
+        self.event_count
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct ReviewCandidateOutput {
     uid: u32,

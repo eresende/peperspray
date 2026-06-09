@@ -2,6 +2,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use uuid::Uuid;
 
+use crate::assistant::config::RedactionMode;
+
 pub const DEFAULT_CONFIG_PATH: &str = "/etc/peperspray/config.toml";
 pub const DEFAULT_LOG_FILE: &str = "/var/log/peperspray/events.jsonl";
 
@@ -41,6 +43,11 @@ impl FromStr for WhyTarget {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
+    Assistant {
+        #[command(subcommand)]
+        command: AssistantCommand,
+    },
+
     Learn {
         #[arg(long, default_value = DEFAULT_CONFIG_PATH)]
         config: PathBuf,
@@ -139,6 +146,12 @@ pub enum Command {
 
         #[arg(long)]
         json: bool,
+
+        #[arg(long)]
+        assist: bool,
+
+        #[command(flatten)]
+        assistant: AssistantCliOptions,
     },
 
     PolicyReview {
@@ -159,6 +172,12 @@ pub enum Command {
 
         #[arg(long)]
         force: bool,
+
+        #[arg(long)]
+        assist: bool,
+
+        #[command(flatten)]
+        assistant: AssistantCliOptions,
     },
 
     InspectProcess {
@@ -191,6 +210,35 @@ pub enum Command {
         #[command(subcommand)]
         command: ServiceCommand,
     },
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum AssistantCommand {
+    Doctor {
+        #[command(flatten)]
+        assistant: AssistantCliOptions,
+    },
+}
+
+#[derive(Debug, Clone, Default, clap::Args)]
+pub struct AssistantCliOptions {
+    #[arg(long = "assistant-provider")]
+    pub provider: Option<String>,
+
+    #[arg(long = "assistant-endpoint")]
+    pub endpoint: Option<String>,
+
+    #[arg(long = "assistant-model")]
+    pub model: Option<String>,
+
+    #[arg(long = "assistant-timeout")]
+    pub timeout_seconds: Option<u64>,
+
+    #[arg(long = "assistant-redaction")]
+    pub redaction: Option<RedactionMode>,
+
+    #[arg(long = "assistant-json")]
+    pub assistant_json: bool,
 }
 
 #[derive(Debug, clap::Subcommand)]

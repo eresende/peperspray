@@ -4,7 +4,8 @@ use peperspray::cli::{Cli, Command, DecisionFilter, ServiceCommand, WhyTarget};
 use peperspray::event::{AccessEvent, Operation};
 use peperspray::policy::Decision;
 use peperspray::{
-    commands, config, doctor, logging, paths, policy, process, review, service, setup, status,
+    assistant, commands, config, doctor, logging, paths, policy, process, review, service, setup,
+    status,
 };
 use std::path::PathBuf;
 
@@ -12,6 +13,15 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Command::Assistant { command } => match command {
+            peperspray::cli::AssistantCommand::Doctor { assistant } => {
+                let ok = assistant::run_doctor(&assistant)?;
+                if !ok {
+                    std::process::exit(1);
+                }
+            }
+        },
+
         Command::Learn { config } => {
             set_mode(&config, config::Mode::Learn)?;
         }
@@ -161,6 +171,8 @@ fn main() -> anyhow::Result<()> {
             log_file,
             decision,
             json,
+            assist,
+            assistant: assistant_options,
         } => {
             let logs = logging::read_jsonl_logs(&log_file)
                 .with_context(|| format!("failed to read log file {}", log_file.display()))?;
@@ -190,10 +202,20 @@ fn main() -> anyhow::Result<()> {
                 }
             };
 
-            if json {
+            if assist && assistant_options.assistant_json {
+                let assistant_result = assistant::explain_event(log, &assistant_options)
+                    .unwrap_or_else(|err| Err(assistant_failure(err)));
+                print_assisted_log_json(log, &assistant_result)?;
+            } else if json {
                 commands::logs::print_log_json(log)?;
             } else {
                 commands::logs::print_log_detail(log);
+
+                if assist {
+                    let assistant_result = assistant::explain_event(log, &assistant_options)
+                        .unwrap_or_else(|err| Err(assistant_failure(err)));
+                    assistant::render::print_review(&assistant_result);
+                }
             }
         }
 
@@ -204,6 +226,8 @@ fn main() -> anyhow::Result<()> {
             toml,
             write_suggestions,
             force,
+            assist,
+            assistant: assistant_options,
         } => {
             if json && toml {
                 anyhow::bail!("--json and --toml cannot be used together");
@@ -211,6 +235,10 @@ fn main() -> anyhow::Result<()> {
 
             if write_suggestions.is_some() && (json || toml) {
                 anyhow::bail!("--write-suggestions cannot be used together with --json or --toml");
+            }
+
+            if assist && write_suggestions.is_some() {
+                anyhow::bail!("--assist cannot be used together with --write-suggestions");
             }
 
             if force && write_suggestions.is_none() {
@@ -235,12 +263,28 @@ fn main() -> anyhow::Result<()> {
                     review::allow_rule_count_text(candidates.len()),
                     path.display()
                 );
+            } else if assist && assistant_options.assistant_json {
+                if candidates.is_empty() {
+                    print_assisted_policy_review_json(&candidates, None)?;
+                } else {
+                    let assistant_result =
+                        assistant::review_candidates(&candidates, &assistant_options)
+                            .unwrap_or_else(|err| Err(assistant_failure(err)));
+                    print_assisted_policy_review_json(&candidates, Some(&assistant_result))?;
+                }
             } else if json {
                 review::print_review_candidates_json(&candidates)?;
             } else if toml {
                 review::print_review_candidates_toml(&candidates);
             } else {
                 review::print_review_candidates(&candidates);
+
+                if assist && !candidates.is_empty() {
+                    let assistant_result =
+                        assistant::review_candidates(&candidates, &assistant_options)
+                            .unwrap_or_else(|err| Err(assistant_failure(err)));
+                    assistant::render::print_review(&assistant_result);
+                }
             }
         }
 
@@ -470,6 +514,56 @@ fn decision_filter_text(decision: Option<DecisionFilter>) -> &'static str {
         Some(DecisionFilter::Deny) => " matching deny",
         None => "",
     }
+}
+
+fn assistant_failure(err: anyhow::Error) -> assistant::schema::AssistantFailure {
+    assistant::schema::AssistantFailure {
+        message: format!("{err}"),
+    }
+}
+
+fn assistant_json_value(
+    result: &Result<assistant::schema::AssistantReview, assistant::schema::AssistantFailure>,
+) -> serde_json::Value {
+    match result {
+        Ok(review) => serde_json::json!(review),
+        Err(failure) => serde_json::json!({
+            "error": failure.message,
+        }),
+    }
+}
+
+fn print_assisted_log_json(
+    log: &logging::OwnedDecisionLog,
+    assistant_result: &Result<
+        assistant::schema::AssistantReview,
+        assistant::schema::AssistantFailure,
+    >,
+) -> anyhow::Result<()> {
+    let value = serde_json::json!({
+        "deterministic": log,
+        "assistant": assistant_json_value(assistant_result),
+    });
+
+    println!("{}", serde_json::to_string_pretty(&value)?);
+    Ok(())
+}
+
+fn print_assisted_policy_review_json(
+    candidates: &[review::ReviewCandidate],
+    assistant_result: Option<
+        &Result<assistant::schema::AssistantReview, assistant::schema::AssistantFailure>,
+    >,
+) -> anyhow::Result<()> {
+    let deterministic: serde_json::Value =
+        serde_json::from_str(&review::review_candidates_to_json(candidates)?)?;
+    let value = serde_json::json!({
+        "deterministic": deterministic,
+        "assistant": assistant_result.map(assistant_json_value),
+    });
+
+    println!("{}", serde_json::to_string_pretty(&value)?);
+    Ok(())
 }
 
 #[cfg(test)]

@@ -70,3 +70,23 @@ Fanotify initialization can fail because the daemon lacks privileges, the kernel
 does not support the requested flags, or the mark target is invalid. The daemon
 must treat setup failure as startup failure for enforce mode, because no host
 protection exists without the fanotify mark.
+
+## Assistant Failure
+
+The optional assistant is human-facing only. Provider failures must not affect
+daemon startup, policy evaluation, `policy-apply`, or deterministic CLI output.
+
+Expected behavior:
+
+- `peperspray assistant doctor` returns non-zero when the endpoint or model is
+  unavailable.
+- `why --assist` and `policy-review --assist` still print deterministic output
+  when the assistant fails.
+- missing default model guidance uses `ollama pull gemma4:12b`.
+- timeouts report the configured timeout and leave deterministic output intact.
+- assistant requests print a progress line to stderr before waiting on the
+  local model.
+- invalid model JSON is normalized when possible; otherwise the raw assistant
+  text is displayed with a structured parsing warning.
+- `--assistant-redaction none` prints a warning before sending raw event
+  metadata to the configured local endpoint.

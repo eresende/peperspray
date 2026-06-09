@@ -1,5 +1,8 @@
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
+use std::thread;
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_peperspray")
@@ -7,6 +10,60 @@ fn bin() -> &'static str {
 
 fn daemon_bin() -> &'static str {
     env!("CARGO_BIN_EXE_pepersprayd")
+}
+
+fn start_mock_ollama(
+    model: &str,
+    chat_content: &str,
+    requests: usize,
+) -> (String, thread::JoinHandle<Vec<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("mock server should bind");
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let model = model.to_string();
+    let chat_content = chat_content.to_string();
+
+    let handle = thread::spawn(move || {
+        let mut request_lines = Vec::new();
+
+        for _ in 0..requests {
+            let (mut stream, _) = listener.accept().expect("mock request should connect");
+            let mut buffer = [0_u8; 8192];
+            let bytes = stream.read(&mut buffer).expect("request should read");
+            let request = String::from_utf8_lossy(&buffer[..bytes]).to_string();
+            let first_line = request.lines().next().unwrap_or("").to_string();
+            request_lines.push(first_line.clone());
+
+            let body = if first_line.starts_with("GET /api/tags ") {
+                serde_json::json!({
+                    "models": [
+                        {
+                            "name": model
+                        }
+                    ]
+                })
+            } else {
+                serde_json::json!({
+                    "message": {
+                        "content": chat_content
+                    }
+                })
+            };
+
+            let body = body.to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("response should write");
+        }
+
+        request_lines
+    });
+
+    (endpoint, handle)
 }
 
 fn sample_config(mode: &str) -> String {
@@ -211,4 +268,91 @@ fn service_restart_invokes_systemctl_wrapper() {
     let args = std::fs::read_to_string(args_file).expect("args should be written");
 
     assert_eq!(args, "restart\npepersprayd\n");
+}
+
+#[test]
+fn assistant_doctor_succeeds_against_mock_ollama() {
+    let (endpoint, handle) = start_mock_ollama("gemma4:12b", "OK", 2);
+
+    let output = Command::new(bin())
+        .args([
+            "assistant",
+            "doctor",
+            "--assistant-endpoint",
+            &endpoint,
+            "--assistant-model",
+            "gemma4:12b",
+        ])
+        .output()
+        .expect("command should run");
+
+    let requests = handle.join().expect("mock server should finish");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+
+    assert!(output.status.success());
+    assert!(stdout.contains("Model: gemma4:12b"));
+    assert!(stdout.contains("Status: OK"));
+    assert_eq!(requests[0], "GET /api/tags HTTP/1.1");
+    assert_eq!(requests[1], "POST /api/chat HTTP/1.1");
+}
+
+#[test]
+fn assistant_doctor_reports_missing_default_model() {
+    let (endpoint, handle) = start_mock_ollama("qwen3:14b", "OK", 1);
+
+    let output = Command::new(bin())
+        .args(["assistant", "doctor", "--assistant-endpoint", &endpoint])
+        .output()
+        .expect("command should run");
+
+    handle.join().expect("mock server should finish");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+
+    assert!(!output.status.success());
+    assert!(stdout.contains("Assistant model not found: gemma4:12b"));
+    assert!(stdout.contains("ollama pull gemma4:12b"));
+}
+
+#[test]
+fn why_assist_includes_assistant_review_when_provider_succeeds() {
+    let review = serde_json::json!({
+        "summary": "Python read AWS credentials.",
+        "risk_level": "needs_review",
+        "why": ["Python is a broad interpreter."],
+        "recommendations": ["Verify the script."],
+        "safe_rule_guidance": "Avoid allowing python3 globally."
+    })
+    .to_string();
+    let (endpoint, handle) = start_mock_ollama("gemma4:12b", &review, 2);
+
+    let dir = tempfile::tempdir().expect("temp dir should be created");
+    let log_file = dir.path().join("events.jsonl");
+    std::fs::write(
+        &log_file,
+        r#"{"event_id":"00000000-0000-0000-0000-000000000004","timestamp":"2026-01-01T00:00:00Z","uid":1000,"exe":"/usr/bin/python3","target_path":"/home/alice/.aws/credentials","operation":"open_read","decision":"deny","reason":"blocked","matched_path_group":"aws","would_deny":true}
+"#,
+    )
+    .expect("log should be written");
+
+    let output = Command::new(bin())
+        .args(["why", "last", "--log-file"])
+        .arg(&log_file)
+        .args([
+            "--assist",
+            "--assistant-endpoint",
+            &endpoint,
+            "--assistant-model",
+            "gemma4:12b",
+        ])
+        .output()
+        .expect("command should run");
+
+    handle.join().expect("mock server should finish");
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+
+    assert!(output.status.success());
+    assert!(stdout.contains("Decision:    DENY"));
+    assert!(stdout.contains("Assistant review"));
+    assert!(stdout.contains("Risk: needs_review"));
+    assert!(stdout.contains("Python read AWS credentials."));
 }

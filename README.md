@@ -61,6 +61,7 @@ Implemented commands:
 - `logs`
 - `why`
 - `policy-review`
+- `assistant doctor`
 
 Implemented policy and CLI capabilities:
 
@@ -86,6 +87,8 @@ Implemented policy and CLI capabilities:
 - Single-event lookup by event ID or latest matching event
 - Policy-review suggestions as human text, JSON, TOML, or suggestion file,
   with minimum-event filtering
+- Optional local Ollama assistant support for `why --assist` and
+  `policy-review --assist`
 - Starter and interactive config generation with detected local tools
 - Safe mode changes with config backups
 - Protected preset discovery with the `dev-browser-wallet` default profile
@@ -122,6 +125,39 @@ Implemented policy and CLI capabilities:
 - Documented path semantics and inode/device alias hardening
 - Periodic daemon rescan for protected paths created after startup
 - Multi-architecture release builds for Linux x86_64 and ARM64 packages
+
+## Optional Local AI Assistant
+
+`peperspray` can optionally use a local Ollama-compatible model to explain
+events and policy-review candidates. Assistant support is disabled unless you
+run an assistant subcommand or pass `--assist`; it is never used by the daemon
+or the policy enforcement path.
+
+Recommended local models favor fast, instruction-following output over deep
+reasoning. The assistant asks Ollama to disable thinking/reasoning traces and
+return compact JSON because `peperspray` only needs concise advisory text.
+
+1. `gemma4:12b` for 16GB VRAM systems such as Radeon RX 6800 XT workstations.
+2. `qwen3:14b` as the next recommended alternative.
+3. `qwen3.5:latest`, `qwen3:8b`, `llama3.1:8b`, or `mistral:7b` as faster
+   smaller-model options.
+
+The CLI never pulls models automatically:
+
+```sh
+ollama pull gemma4:12b
+peperspray assistant doctor --assistant-model gemma4:12b
+peperspray why last --assist --assistant-model gemma4:12b
+peperspray policy-review --assist --assistant-model gemma4:12b
+```
+
+While the local model is processing, the CLI prints progress to stderr so JSON
+and normal stdout output remain parseable.
+
+Assistant preferences may be stored in
+`~/.config/peperspray/assistant.toml`; CLI flags always override that file. See
+[docs/ASSISTANT.md](docs/ASSISTANT.md) for the privacy model and redaction
+modes.
 
 ## Requirements
 
