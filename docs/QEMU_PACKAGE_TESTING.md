@@ -46,7 +46,7 @@ below for systemd/package lifecycle validation.
 ```sh
 packaging/qemu-test-deb.sh \
   --image ./noble-server-cloudimg-amd64.img \
-  --deb ./target/debian/peperspray_0.1.3_amd64.deb
+  --deb ./target/debian/peperspray_0.1.4_amd64.deb
 ```
 
 The script creates a temporary overlay under `target/qemu-deb-test`, boots the
@@ -87,7 +87,7 @@ or `packaging/build-rpm-container.sh`:
 ```sh
 packaging/qemu-test-rpm.sh \
   --image ./Fedora-Cloud-Base.qcow2 \
-  --rpm ./target/rpm/RPMS/x86_64/peperspray-0.1.3-1.fc44.x86_64.rpm
+  --rpm ./target/rpm/RPMS/x86_64/peperspray-0.1.4-1.fc44.x86_64.rpm
 ```
 
 The RPM smoke test verifies:

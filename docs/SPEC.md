@@ -68,6 +68,10 @@ fallback and records a daemon error; enforce mode denies by fallback.
 In enforce mode, denied reads trigger best-effort desktop notifications through
 the user's session bus when `notify-send` is available. Notifications are
 throttled per user, executable, protected group, and operation for five minutes.
+Delivery runs `runuser`, so the installed systemd unit grants the
+privilege-changing capabilities, the `@setuid` syscall group, and
+writable+executable memory it requires; this tradeoff can be reverted to a
+stricter no-notification profile without affecting enforcement or logging.
 
 Privileged Linux integration tests on Ubuntu 24.04 start the daemon against
 temporary protected files, prove allowed/denied reads end to end, and verify

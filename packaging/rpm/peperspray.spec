@@ -77,6 +77,9 @@ fi
 %ghost %attr(0640,root,root) %{_localstatedir}/log/peperspray/events.jsonl
 
 %changelog
+* Tue Jun 16 2026 peperspray maintainers <maintainers@example.invalid> - 0.1.4-1
+- Enable denied-read desktop notifications by default in the systemd unit.
+
 * Tue Jun 09 2026 peperspray maintainers <maintainers@example.invalid> - 0.1.3-1
 - Add optional local assistant integration.
 

@@ -6,7 +6,7 @@ fn debian_control_declares_package_metadata() {
     let control = std::fs::read_to_string("packaging/deb/control").expect("control should exist");
 
     assert!(control.contains("Package: peperspray"));
-    assert!(control.contains("Version: 0.1.3"));
+    assert!(control.contains("Version: 0.1.4"));
     assert!(control.contains("Architecture: amd64"));
     assert!(control.contains("Depends: systemd, logrotate"));
     assert!(control.contains("Recommends: libnotify-bin"));
@@ -313,6 +313,33 @@ fn systemd_unit_applies_sandboxing() {
             "systemd unit should keep {capability} for fanotify and process inspection"
         );
     }
+
+    // Desktop notifications spawn `runuser`, which needs the privilege-changing
+    // capabilities, the @setuid syscall group, and writable+executable memory
+    // for PAM. These must stay enabled by default so denied-read popups work.
+    for capability in [
+        "CAP_SETUID",
+        "CAP_SETGID",
+        "CAP_SETPCAP",
+        "CAP_DAC_OVERRIDE",
+    ] {
+        assert!(
+            capability_line.contains(capability),
+            "systemd unit should keep {capability} for desktop notifications"
+        );
+    }
+
+    assert!(
+        unit.lines()
+            .any(|line| line.trim() == "SystemCallFilter=@setuid"),
+        "systemd unit should allow @setuid so runuser can deliver notifications"
+    );
+
+    assert!(
+        unit.lines()
+            .any(|line| line.trim() == "MemoryDenyWriteExecute=no"),
+        "systemd unit must allow W+X memory for PAM modules used by notifications"
+    );
 
     // The guard must come back after a clean stop/kill, not only on failure,
     // otherwise the host is left unprotected.

@@ -53,6 +53,13 @@ desktop notifications for denied reads with `notify-send`. Notifications are
 throttled in memory by user, executable, protected group, and operation for five
 minutes.
 
+Delivering a notification runs `runuser` to enter the target user's session
+bus, so the installed `pepersprayd.service` grants the privilege-changing
+capabilities, the `@setuid` syscall group, and writable+executable memory that
+`runuser` and PAM require. This is the documented tradeoff of running
+notifications from a root daemon; the unit comments describe how to revert to a
+stricter no-notification profile while keeping enforcement and logging intact.
+
 ## Package Lifecycle
 
 Build a local package with:
@@ -83,8 +90,8 @@ packaging/build-rpm-container.sh
 Install it with:
 
 ```sh
-cp ./target/debian/peperspray_0.1.3_amd64.deb /tmp/
-sudo apt install /tmp/peperspray_0.1.3_amd64.deb
+cp ./target/debian/peperspray_0.1.4_amd64.deb /tmp/
+sudo apt install /tmp/peperspray_0.1.4_amd64.deb
 ```
 
 Remove package-managed files while keeping conffiles where dpkg normally keeps

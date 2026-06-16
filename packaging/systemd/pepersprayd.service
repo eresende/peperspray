@@ -23,8 +23,14 @@ RestartSec=2s
 # IMPORTANT: enforcement depends on CAP_SYS_ADMIN. If you tighten the
 # capability set or syscall filter further, re-verify that
 # fanotify_init()/fanotify_mark() still succeed on the target kernel.
+#
+# The CAP_SETUID/CAP_SETGID/CAP_SETPCAP/CAP_DAC_OVERRIDE/CAP_AUDIT_WRITE
+# capabilities are required by the `runuser` call that delivers denied-read
+# desktop notifications into the target user's session bus. See the
+# "Desktop notifications" section below for how to drop them again if you
+# prefer the stricter no-notification profile.
 NoNewPrivileges=yes
-CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_READ_SEARCH CAP_SYS_PTRACE
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_READ_SEARCH CAP_SYS_PTRACE CAP_DAC_OVERRIDE CAP_SETUID CAP_SETGID CAP_SETPCAP CAP_AUDIT_WRITE
 AmbientCapabilities=
 UMask=0027
 
@@ -46,30 +52,41 @@ RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
-MemoryDenyWriteExecute=yes
+# Desktop notifications spawn `runuser`, which loads PAM modules that may map
+# writable+executable memory, so MemoryDenyWriteExecute must stay off. Set it
+# back to yes if you disable notifications (see the section below).
+MemoryDenyWriteExecute=no
 RestrictAddressFamilies=AF_UNIX AF_NETLINK
 SystemCallArchitectures=native
 # Baseline allow-list for system services, plus the fanotify syscalls the
 # guard depends on. fanotify_init/fanotify_mark are classified under
 # @privileged and are NOT part of @system-service, so they must be allowed
 # explicitly or the daemon is killed with SIGSYS on startup.
+#
+# @setuid covers the setuid/setgid/setgroups syscalls that `runuser` invokes
+# to drop into the target user's session for desktop notifications. Remove
+# this line if you disable notifications (see the section below).
 SystemCallFilter=@system-service
+SystemCallFilter=@setuid
 SystemCallFilter=fanotify_init fanotify_mark
 
-# --- Desktop notifications (optional) -----------------------------------
-# Denied-read desktop notifications are best-effort. They are implemented by
-# spawning `runuser` to enter the target user's session bus, which requires
-# privilege-changing capabilities and PAM execution that this hardened
-# profile intentionally blocks. The daemon treats notification failures as
-# non-fatal: denies are still enforced and logged.
+# --- Desktop notifications ----------------------------------------------
+# Denied-read desktop notifications are enabled by default. They are
+# implemented by spawning `runuser` to enter the target user's session bus,
+# which requires the privilege-changing capabilities, the @setuid syscall
+# group, and writable+executable memory for PAM that the directives above
+# grant. The daemon treats notification failures as non-fatal: denies are
+# still enforced and logged even if the popup cannot be delivered.
 #
-# To re-enable notifications, relax the sandbox by uncommenting the block
-# below (this widens the attack surface of a root daemon, so enable it only
-# if you need the popups):
+# Enabling notifications widens the attack surface of a root daemon. To run
+# the stricter no-notification profile instead, revert these directives:
 #
-#   CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_READ_SEARCH CAP_SYS_PTRACE CAP_DAC_OVERRIDE CAP_SETUID CAP_SETGID CAP_SETPCAP CAP_AUDIT_WRITE
-#   SystemCallFilter=@system-service @setuid
-#   # remove MemoryDenyWriteExecute (PAM modules may need W+X)
+#   CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_READ_SEARCH CAP_SYS_PTRACE
+#   MemoryDenyWriteExecute=yes
+#   # and remove the `SystemCallFilter=@setuid` line above
+#
+# With those reverted, denies are still enforced and logged; only the
+# desktop popups are disabled.
 
 [Install]
 WantedBy=multi-user.target

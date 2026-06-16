@@ -408,6 +408,17 @@ throttled per user, executable, protected group, and operation for five minutes
 to avoid repeated popups from noisy tools. Denies are still blocked and logged
 if desktop notifications are unavailable.
 
+The notification path runs `runuser` to deliver the popup into the target
+user's session bus. The installed `pepersprayd.service` grants the
+capabilities (`CAP_SETUID`, `CAP_SETGID`, `CAP_SETPCAP`, `CAP_DAC_OVERRIDE`,
+`CAP_AUDIT_WRITE`), the `@setuid` syscall group, and writable+executable memory
+(`MemoryDenyWriteExecute=no`) that `runuser` and its PAM modules require.
+Granting these widens the attack surface of a root daemon, so the unit is the
+single place this tradeoff is made. If you prefer a stricter no-notification
+profile, revert those directives as documented in
+`packaging/systemd/pepersprayd.service`; denies remain enforced and logged with
+the popups disabled.
+
 ![Desktop notification for a blocked credential read](assets/notification.png)
 
 To run the ignored privileged fanotify tests on a Linux host:
@@ -461,8 +472,8 @@ early at 10 MiB, keeps 14 rotations, and compresses older logs.
 
 ```sh
 packaging/build-deb.sh
-cp ./target/debian/peperspray_0.1.3_amd64.deb /tmp/
-sudo apt install /tmp/peperspray_0.1.3_amd64.deb
+cp ./target/debian/peperspray_0.1.4_amd64.deb /tmp/
+sudo apt install /tmp/peperspray_0.1.4_amd64.deb
 sudo apt remove peperspray
 sudo apt purge peperspray
 ```
@@ -759,8 +770,8 @@ Official releases are published by the GitHub Actions release workflow.
 To publish from a tag:
 
 ```sh
-git tag v0.1.3
-git push origin v0.1.3
+git tag v0.1.4
+git push origin v0.1.4
 ```
 
 The release version must match `Cargo.toml` without the leading `v`. The
